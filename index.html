@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#102a43">
+  <meta name="description" content="以QR Code管理房間、櫃子、箱子與物品位置的倉庫管理原型。">
+  <title>庫位｜倉庫管理原型</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23102a43'/%3E%3Cpath d='M14 20l18-9 18 9v25l-18 9-18-9V20zm18-3l-10 5 10 5 10-5-10-5zm-12 10v14l9 4.5v-14L20 27zm15 18.5l9-4.5V27l-9 4.5v14z' fill='%232dd4bf'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">▰</span><span>庫位</span></div>
+      <nav id="desktopNav"></nav>
+      <div class="rail-note">介面與流程驗證版<br>資料僅存在這台裝置</div>
+    </aside>
+
+    <div class="workspace">
+      <header class="mobile-head">
+        <div class="brand"><span class="brand-mark">▰</span><span>庫位</span></div>
+        <span class="mode">原型模式</span>
+      </header>
+
+      <main>
+        <section class="view active" id="homeView"></section>
+        <section class="view" id="searchView"></section>
+        <section class="view" id="addView"></section>
+        <section class="view" id="moveView"></section>
+        <section class="view" id="locationsView"></section>
+      </main>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" id="mobileNav"></nav>
+
+  <dialog id="scannerDialog">
+    <div class="dialog-head"><h2>掃描QR Code</h2><button class="close" data-close>×</button></div>
+    <div class="dialog-body">
+      <div class="scanner"><video id="scannerVideo" playsinline muted></video><div class="scan-frame"></div><p id="scanMessage">準備啟動後鏡頭</p></div>
+      <div class="stack gap-sm top-sm">
+        <button class="primary" id="cameraButton">啟動相機</button>
+        <button class="secondary" id="demoScanButton">模擬掃描示範標籤</button>
+        <button class="link-button" id="manualScanButton">手動輸入編號</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="detailDialog"></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
+
