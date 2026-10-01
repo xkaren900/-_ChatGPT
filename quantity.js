@@ -13,12 +13,12 @@ function openQuantityDialog(item) {
     const amount=Number(form.elements.amount.value),operation=form.elements.operation.value,reason=form.elements.reason.value.trim();
     if(!Number.isFinite(amount)||amount<0||nextQuantity()<0||(operation!=='set'&&amount===0)||nextQuantity()===item.quantity){error.textContent='請確認輸入數量，調整後不得小於0且需與原數量不同';return}
     const key=JSON.stringify({amount,operation,reason});if(key!==signature){signature=key;requestId=crypto.randomUUID()}
-    pending=true;submit.disabled=true;error.textContent='';form.querySelectorAll('input,select').forEach(x=>x.disabled=true);
+    pending=true;submit.disabled=true;submit.textContent='處理中…';error.textContent='正在等待雲端確認，請勿重複操作';form.querySelectorAll('input,select').forEach(x=>x.disabled=true);
     try{
       const result=await warehouseCloud.request({action:'adjustQuantity',id:item.id,operation,amount,reason,expectedQuantity:item.quantity,expectedVersion:item.quantityVersion||'',requestId});
       Object.assign(item,result.item);dialog.close();document.querySelector('#detailDialog').close();showDetail(item.id);toast(result.warning||'數量已更新');
     }catch(e){error.textContent=e.message==='不支援的操作'?'請先更新 Apps Script 並部署新版本以啟用數量調整':e.message}
-    finally{pending=false;submit.disabled=false;form.querySelectorAll('input,select').forEach(x=>x.disabled=false)}
+    finally{pending=false;submit.disabled=false;submit.textContent='確認調整';form.querySelectorAll('input,select').forEach(x=>x.disabled=false)}
   };
   dialog.showModal();
   warehouseCloud.request({action:'quantityHistory',id:item.id}).then(result=>{

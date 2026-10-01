@@ -6,18 +6,21 @@ const warehouseCloud = (() => {
   function status(message) { document.querySelector('#cloudStatus').textContent = message; }
   async function request(payload) {
     if (!token) throw new Error('請先連接雲端');
-    let response;
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),45000);
     try {
-      response = await fetch(endpoint, {method:'POST',redirect:'follow',credentials:'omit',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,token})});
-    } catch (error) {
-      throw new Error(['create','move','adjustQuantity'].includes(payload.action) ? '未收到雲端確認，請重新載入確認結果後再操作' : '無法連接雲端，請檢查網路及部署設定');
-    }
-    if (!response.ok) throw new Error('雲端回應失敗，請重新載入確認資料');
-    let result;
-    try { result = await response.json(); } catch (error) { throw new Error('後端未回傳JSON，請確認已部署正確版本及存取權'); }
-    if (!result.ok) throw new Error(result.error || '雲端操作失敗');
-    return result;
+      const response=await fetch(endpoint,{method:'POST',redirect:'follow',credentials:'omit',signal:controller.signal,headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,token})});
+      if(!response.ok)throw new Error('雲端回應失敗，請重新載入確認資料');
+      let result;
+      try{result=await response.json()}catch(error){if(error.name==='AbortError')throw error;throw new Error('後端未回傳JSON，請確認已部署正確版本及存取權')}
+      if(!result.ok)throw new Error(result.error||'雲端操作失敗');
+      return result;
+    }catch(error){
+      if(error.name==='AbortError'||error instanceof TypeError)throw new Error(['create','move','adjustQuantity'].includes(payload.action)?'未收到雲端確認，結果尚未確定；請重新載入確認數量及紀錄後再操作':'讀取逾時或連線失敗，請稍後重新載入');
+      throw error;
+    }finally{clearTimeout(timer)}
   }
+
   async function refresh() {
     if (busy) return;
     busy = true; controls(); status('正在讀取雲端資料…');

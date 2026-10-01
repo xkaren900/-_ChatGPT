@@ -25,22 +25,26 @@ function setupWarehouse() {
   } finally { lock.releaseLock(); }
 }
 
-function doGet() { return json_({ok:true,service:'warehouse',version:2}); }
+function doGet() { return json_({ok:true,service:'warehouse',version:3}); }
 function doPost(e) {
   let lock;
   try {
     const body = JSON.parse(e.postData.contents);
     const token = PropertiesService.getScriptProperties().getProperty('WAREHOUSE_TOKEN');
     if (!token || token.length < 24 || body.token !== token) throw new Error('未授權');
-    lock = LockService.getScriptLock();
-    lock.waitLock(20000);
-    const sheet = SpreadsheetApp.openById(WAREHOUSE.spreadsheetId).getSheetByName(WAREHOUSE.sheetName);
+    if (['create','move','adjustQuantity'].includes(body.action)) {
+      lock = LockService.getScriptLock();
+      if (!lock.tryLock(5000)) throw new Error('系統正在處理其他寫入，請稍後再試；此次尚未開始寫入');
+    }
+    const book = SpreadsheetApp.openById(WAREHOUSE.spreadsheetId);
+    const sheet = book.getSheetByName(WAREHOUSE.sheetName);
     if (!sheet || sheet.getRange(1,1,1,10).getDisplayValues()[0].some((v,i) => v !== WAREHOUSE.headers[i])) throw new Error('請先執行 setupWarehouse');
     const rows = sheet.getLastRow() < 2 ? [] : sheet.getRange(2,1,sheet.getLastRow()-1,10).getValues();
     const items = rows.filter(r => r[0]).map(rowToItem_);
-    const log = quantityLog_(SpreadsheetApp.openById(WAREHOUSE.spreadsheetId),false);
+    const log = quantityLog_(book,false);
     const history = log && log.getLastRow()>1 ? log.getRange(2,1,log.getLastRow()-1,9).getValues() : [];
-    items.forEach(item=>{item.quantityVersion='';history.forEach(r=>{if(String(r[1])===item.id){item.quantity=Number(r[6]);item.quantityVersion=String(r[0])}})});
+    const latest = new Map();history.forEach(r=>latest.set(String(r[1]),r));
+    items.forEach(item=>{const entry=latest.get(item.id);item.quantityVersion=entry?String(entry[0]):'';if(entry)item.quantity=Number(entry[6])});
     if (body.action === 'list') return json_({ok:true,items:items});
     if (body.action === 'quantityHistory') return json_({ok:true,records:history.filter(r=>String(r[1])===body.id).slice(-50).reverse().map(r=>({requestId:r[0],operation:r[3],amount:r[4],before:r[5],after:r[6],reason:String(r[7]||'').replace(/^'(?=[=+@\-])/,'') ,time:r[8] instanceof Date?r[8].toISOString():String(r[8])}))});
     if (body.action === 'adjustQuantity') {
