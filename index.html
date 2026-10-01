@@ -25,16 +25,17 @@
     <aside class="rail">
       <div class="brand"><span class="brand-mark">▰</span><span>庫位</span></div>
       <nav id="desktopNav"></nav>
-      <div class="rail-note">介面與流程驗證版<br>資料僅存在這台裝置</div>
+      <div class="rail-note">介面與流程驗證版<br>Google Sheets 雲端資料</div>
     </aside>
 
     <div class="workspace">
       <header class="mobile-head">
         <div class="brand"><span class="brand-mark">▰</span><span>庫位</span></div>
-        <span class="mode">原型模式</span>
+        <span class="mode">雲端模式</span>
       </header>
 
       <main>
+        <div class="card" style="padding:14px;margin-bottom:16px"><span id="cloudStatus" role="status">尚未連接雲端</span> <button class="small-button" id="cloudConnect">連接雲端</button> <button class="small-button" id="cloudRefresh" disabled>重新載入</button> <button class="small-button" id="cloudDisconnect" disabled>中斷連線</button></div>
         <section class="view active" id="homeView"></section>
         <section class="view" id="searchView"></section>
         <section class="view" id="addView"></section>
@@ -61,6 +62,7 @@
   <dialog id="detailDialog"></dialog>
   <dialog id="duplicateDialog"></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
