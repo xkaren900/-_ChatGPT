@@ -10,7 +10,7 @@ const warehouseCloud = (() => {
     try {
       response = await fetch(endpoint, {method:'POST',redirect:'follow',credentials:'omit',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,token})});
     } catch (error) {
-      throw new Error(payload.action === 'create' || payload.action === 'move' ? '未收到雲端確認，請重新載入確認結果後再操作' : '無法連接雲端，請檢查網路及部署設定');
+      throw new Error(['create','move','adjustQuantity'].includes(payload.action) ? '未收到雲端確認，請重新載入確認結果後再操作' : '無法連接雲端，請檢查網路及部署設定');
     }
     if (!response.ok) throw new Error('雲端回應失敗，請重新載入確認資料');
     let result;

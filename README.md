@@ -28,3 +28,10 @@
 
 Repository內含GitHub Actions工作流程；將Pages來源設定為GitHub Actions後，每次更新`main`分支會自動發布。
 
+
+
+## 數量調整
+
+一般物品詳情可增加、減少、盤點修正數量並查看最近50筆紀錄。更新 Apps Script 的 Code.gs（保留自己的 spreadsheetId、folderId），執行 setupWarehouse 建立「數量異動紀錄」，再將既有部署更新為新版本。WAREHOUSE_TOKEN 不變。
+
+異動紀錄是數量依據，主表數量為最新值的副本。請透過網站盤點修正，勿直接修改主表D欄或刪改異動紀錄。讀取時以最後一筆異動為準。使用鎖、版本檢查與異動識別碼避免並行覆蓋及重複執行。尚無個人帳號，紀錄不含操作人。
