@@ -1,6 +1,9 @@
-// 金鑰只保留在記憶體，重新整理頁面後需再次輸入。
+// 使用者勾選後，才將通過驗證的金鑰保留於這台裝置。
 const warehouseCloud = (() => {
   const endpoint = 'https://script.google.com/macros/s/AKfycbzUXvK723SxffegEGG17uqnT4hUjdrbg9AtkOdgB1tn8xXLS-GazT9mwh33na0s4LWB/exec';
+  const storageKey='warehouse-token:'+endpoint;
+  function storedToken(){try{return localStorage.getItem(storageKey)||''}catch(error){return ''}}
+  function forgetToken(){try{localStorage.removeItem(storageKey);return true}catch(error){return false}}
   let token = '', busy = false;
   const api = {onItems: null, request, refresh};
   function status(message) { document.querySelector('#cloudStatus').textContent = message; }
@@ -13,7 +16,7 @@ const warehouseCloud = (() => {
       if(!response.ok)throw new Error('雲端回應失敗，請重新載入確認資料');
       let result;
       try{result=await response.json()}catch(error){if(error.name==='AbortError')throw error;throw new Error('後端未回傳JSON，請確認已部署正確版本及存取權')}
-      if(!result.ok)throw new Error(result.error||'雲端操作失敗');
+      if(!result.ok){if(result.error==='未授權'){token='';forgetToken();api.onItems?.([]);controls();throw new Error('金鑰失效，請重新輸入')}throw new Error(result.error||'雲端操作失敗')}
       return result;
     }catch(error){
       if(error.name==='AbortError'||error instanceof TypeError)throw new Error(['create','move','adjustQuantity'].includes(payload.action)?'未收到雲端確認，結果尚未確定；請重新載入確認數量及紀錄後再操作':'讀取逾時或連線失敗，請稍後重新載入');
@@ -36,23 +39,26 @@ const warehouseCloud = (() => {
     document.querySelector('#cloudConnect').disabled = busy;
     document.querySelector('#cloudRefresh').disabled = busy || !token;
     document.querySelector('#cloudDisconnect').disabled = busy || !token;
+    document.querySelector('#cloudForget').disabled = busy || !storedToken();
   }
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('#cloudConnect').onclick = async () => {
       const dialog=document.createElement('dialog');
-      dialog.innerHTML='<form class="dialog-body"><h2>連接雲端</h2><label>存取金鑰<input class="field" type="password" autocomplete="off" required minlength="24"></label><p>輸入你設定的 WAREHOUSE_TOKEN，僅保留於本次頁面。</p><button class="primary">連接</button> <button class="secondary" type="button">取消</button></form>';
+      dialog.innerHTML='<form class="dialog-body"><h2>連接雲端</h2><label>存取金鑰<input class="field" type="password" autocomplete="off" required minlength="24"></label><label style="display:block;margin-top:14px"><input type="checkbox" name="remember"> 記住這台裝置</label><p>勾選後，重新整理或再次開啟會自動連線。金鑰會保存在此瀏覽器，請只在私人裝置使用。</p><button class="primary">連接</button> <button class="secondary" type="button">取消</button></form>';
       document.body.append(dialog);dialog.showModal();
       const close=()=>{dialog.close();dialog.remove()};
       dialog.querySelector('button.secondary').onclick=close;
       dialog.oncancel=()=>dialog.remove();
       dialog.querySelector('form').onsubmit=async event=>{
-        event.preventDefault();token=dialog.querySelector('input').value;close();
-        try{await refresh()}catch(error){token='';api.onItems?.([]);controls()}
+        event.preventDefault();token=dialog.querySelector('input[type=password]').value;const remember=dialog.querySelector('[name=remember]').checked;close();
+        try{await refresh();if(remember){try{localStorage.setItem(storageKey,token)}catch(error){status('雲端已連接，但瀏覽器無法記住金鑰')}}else if(!forgetToken())status('雲端已連接，但無法清除原金鑰，請清除本站儲存資料');controls()}catch(error){token='';api.onItems?.([]);controls()}
       };
     };
     document.querySelector('#cloudRefresh').onclick=()=>refresh().catch(()=>{});
     document.querySelector('#cloudDisconnect').onclick=()=>{token='';api.onItems?.([]);status('尚未連接雲端');controls()};
-    controls();
+    document.querySelector('#cloudForget').onclick=()=>{if(!forgetToken()){status('無法清除金鑰，請由瀏覽器清除本站儲存資料');return}token='';api.onItems?.([]);status('已忘記金鑰，連線已中斷');controls()};
+    token=storedToken();controls();
+    if(token)refresh().catch(()=>{});
   });
   return api;
 })();
