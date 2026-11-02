@@ -1,147 +1,209 @@
-// 貼入 Apps Script。先在「專案設定 → 指令碼屬性」設定 WAREHOUSE_TOKEN。
-const WAREHOUSE = {
-  spreadsheetId: 'YOUR_SPREADSHEET_ID',
-  folderId: 'YOUR_PHOTO_FOLDER_ID',
-  sheetName: '工作表1',
-  headers: ['物品編號','物品種類','物品名稱','數量','位置條碼','照片預覽','照片連結','建檔時間','備註','照片檔案ID']
+/* Schema 4 adapter. Install Core.gs alongside this file in a NEW test project. */
+const MERGED_HEADERS = {
+  WarehouseJournal: ['EventJSON'],
+  Parts: ['id','code','name','manufacturer','mpn','specification','unit','barcode','note','status','photoId','createdAt','updatedAt','version'],
+  Locations: ['id','code','name','type','parentId','status','note','photoId','createdAt','updatedAt','version'],
+  Stock: ['id','partId','locationId','quantity','quantityState','updatedAt','version'],
+  AuditLogs: ['id','requestId','time','actor','action','reason','table','entityId','beforeJSON','afterJSON']
 };
-
-function setupWarehouse() {
-  const token = PropertiesService.getScriptProperties().getProperty('WAREHOUSE_TOKEN');
-  if (!token || token.length < 24) throw new Error('請先設定至少24字元的 WAREHOUSE_TOKEN 指令碼屬性');
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+function mergedConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const deployment = typeof MERGED_DEPLOYMENT_CONFIG === 'undefined' ? {} : MERGED_DEPLOYMENT_CONFIG;
+  const spreadsheetId = props.getProperty('MERGED_SPREADSHEET_ID') || deployment.spreadsheetId;
+  if (!spreadsheetId) throw new Error('尚未設定合併版資料庫');
+  return {props, spreadsheetId, folderId: props.getProperty('MERGED_PHOTO_FOLDER_ID') || deployment.folderId || '', deployment};
+}
+function mergedEnabled_(config) {
+  const setting = config.props.getProperty('MERGED_WRITE_ENABLED');
+  if (setting !== 'true' && !(setting === null && config.deployment && config.deployment.writeEnabled === true)) throw new Error('此資料庫目前禁止寫入');
+}
+function setupMergedWarehouse() {
+  const config = mergedConfig_(); mergedEnabled_(config);
+  const token = config.props.getProperty('WAREHOUSE_TOKEN');
+  if (!token || token.length < 24) throw new Error('請先設定至少24字元的共用金鑰');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
-    const sheet = SpreadsheetApp.openById(WAREHOUSE.spreadsheetId).getSheetByName(WAREHOUSE.sheetName);
-    if (!sheet) throw new Error('找不到工作表1');
-    const existing = sheet.getRange(1,1,1,8).getDisplayValues()[0];
-    if (existing.some((v,i) => v !== WAREHOUSE.headers[i])) throw new Error('前8欄與預期欄位不符，未修改資料');
-    const extra = sheet.getRange(1,9,1,2).getDisplayValues()[0];
-    if (extra.some((v,i) => v && v !== WAREHOUSE.headers[i+8])) throw new Error('I/J欄已有其他用途，未修改資料');
-    sheet.getRange(1,9,1,2).setValues([WAREHOUSE.headers.slice(8)]);
-    quantityLog_(SpreadsheetApp.openById(WAREHOUSE.spreadsheetId),true);
-    DriveApp.getFolderById(WAREHOUSE.folderId).getName();
-    Logger.log('初始化完成；原有8欄保留，新增備註與照片檔案ID。');
+    const book = SpreadsheetApp.openById(config.spreadsheetId);
+    // Never initialize over an existing inventory workbook. Use a separate destination.
+    const allowed = Object.keys(MERGED_HEADERS).concat(['工作表1','Sheet1','工作表 1']);
+    if (book.getSheets().some(s => !allowed.includes(s.getName()) || (!MERGED_HEADERS[s.getName()] && s.getLastRow() > 0))) {
+      throw new Error('初始化只能使用獨立空白資料庫或已初始化的合併版資料庫');
+    }
+    for (const [name, headers] of Object.entries(MERGED_HEADERS)) {
+      let sheet = book.getSheetByName(name);
+      if (!sheet) sheet = book.insertSheet(name);
+      if (!sheet.getLastRow()) {
+        sheet.getRange(1,1,1,headers.length).setValues([headers]); sheet.setFrozenRows(1);
+      }
+      mergedSheet_(book, name);
+    }
+    SpreadsheetApp.flush();
+    console.log(JSON.stringify({ok:true,schema:4,sheets:Object.keys(MERGED_HEADERS)}));
   } finally { lock.releaseLock(); }
 }
-
-function doGet() { return json_({ok:true,service:'warehouse',version:3}); }
+function mergedSheet_(book, name) {
+  const sheet = book.getSheetByName(name), headers = MERGED_HEADERS[name];
+  if (!sheet || sheet.getRange(1,1,1,headers.length).getDisplayValues()[0].some((v,i) => v !== headers[i])) {
+    throw new Error('合併版資料表欄位不符：' + name);
+  }
+  return sheet;
+}
+function mergedEvents_(book) {
+  const sheet = mergedSheet_(book, 'WarehouseJournal');
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues().map(row => {
+    if (typeof row[0] !== 'string' || !row[0].startsWith('{')) throw new Error('提交日誌格式錯誤');
+    return JSON.parse(row[0]);
+  });
+}
+function mergedCanonical_(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(mergedCanonical_).join(',') + ']';
+  return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + mergedCanonical_(value[k])).join(',') + '}';
+}
+function mergedFingerprint_(command) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, mergedCanonical_(command), Utilities.Charset.UTF_8);
+  return bytes.map(x => ((x+256)%256).toString(16).padStart(2,'0')).join('');
+}
+function mergedAutoCode_(state, command, config) {
+  const prefix = command.action === 'createPart' ? 'ITM' : ({room:'LOC',cabinet:'CAB',box:'BOX'}[command.input && command.input.type]);
+  if (!prefix) throw new Error('儲位種類無效');
+  const stem = prefix + '-' + Utilities.formatDate(new Date(),'Asia/Taipei','yyyyMMdd') + '-';
+  let max = 0;
+  state.parts.concat(state.locations).forEach(x => {
+    if (x.id.startsWith(stem) && /^\d+$/.test(x.id.slice(stem.length))) max = Math.max(max,Number(x.id.slice(stem.length)));
+  });
+  const key = 'MERGED_CODE.' + config.spreadsheetId + '.' + stem;
+  const saved = config.props.getProperty(key);
+  if (saved !== null && !/^\d+$/.test(saved)) throw new Error('編號計數器格式錯誤');
+  const next = Math.max(max, Number(saved || 0)) + 1;
+  if (!Number.isSafeInteger(next)) throw new Error('編號超出安全範圍');
+  config.props.setProperty(key,String(next));
+  return stem + String(next).padStart(4,'0');
+}
+function mergedPhoto_(command, config) {
+  if (!command.photo) return '';
+  if (!['createPart','createLocation'].includes(command.action)) throw new Error('此操作不支援上傳照片');
+  if (!config.folderId) throw new Error('尚未設定私人照片資料夾');
+  const match = String(command.photo).match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match || match[2].length > 2800000) throw new Error('照片格式錯誤或超過2MB');
+  const bytes = Utilities.base64Decode(match[2]);
+  if (bytes.length > 2100000) throw new Error('照片超過2MB');
+  const folder = DriveApp.getFolderById(config.folderId);
+  const name = 'merged-' + command.requestId + '.' + match[1].split('/')[1];
+  const files = folder.getFilesByName(name);
+  if (files.hasNext()) return files.next().getId();
+  // Keep original Drive permissions; never make public. A failed commit may leave an orphan for review.
+  return folder.createFile(Utilities.newBlob(bytes,match[1],name)).getId();
+}
+function mergedProject_(book, state, events) {
+  function upsert(name, rows) {
+    const sheet = mergedSheet_(book, name), fields = MERGED_HEADERS[name];
+    const indexes = new Map();
+    if (sheet.getLastRow() > 1) sheet.getRange(2,1,sheet.getLastRow()-1,1).getDisplayValues().forEach((r,i) => {
+      if (indexes.has(r[0])) throw new Error('投影資料包含重複編號'); indexes.set(r[0],i+2);
+    });
+    rows.forEach(row => {
+      const number = indexes.get(row.id) || sheet.getLastRow()+1;
+      const values = fields.map(field => row[field] === null || row[field] === undefined ? '' : String(row[field]));
+      // Sheets parses RichText input too. Escape every cell once, including genuine apostrophes.
+      // Sheets consumes the escape on write; API reads canonical JSON with no unescape heuristic.
+      const range = sheet.getRange(number,1,1,fields.length);
+      range.setNumberFormat('@');
+      range.setRichTextValues([values.map(value => SpreadsheetApp.newRichTextValue().setText("'" + value).build())]);
+      indexes.set(row.id,number);
+    });
+  }
+  upsert('Parts',state.parts); upsert('Locations',state.locations); upsert('Stock',state.stocks);
+  const audit = [];
+  events.forEach(event => event.changes.forEach((change,i) => audit.push({
+    id:event.requestId+':'+i, requestId:event.requestId, time:event.time, actor:event.actor,
+    action:event.action, reason:event.reason || '', table:change.table, entityId:change.after.id,
+    beforeJSON:JSON.stringify(change.before), afterJSON:JSON.stringify(change.after)
+  })));
+  upsert('AuditLogs',audit); SpreadsheetApp.flush();
+}
+function doGet() { return mergedJSON_({ok:true,service:'warehouse-merged',schema:4}); }
 function doPost(e) {
   let lock;
   try {
-    const body = JSON.parse(e.postData.contents);
-    const token = PropertiesService.getScriptProperties().getProperty('WAREHOUSE_TOKEN');
+    if (!e || !e.postData || e.postData.contents.length > 3000000) throw new Error('請求內容無效或過大');
+    const body = JSON.parse(e.postData.contents), config = mergedConfig_();
+    const token = config.props.getProperty('WAREHOUSE_TOKEN');
     if (!token || token.length < 24 || body.token !== token) throw new Error('未授權');
-    if (['create','move','adjustQuantity'].includes(body.action)) {
-      lock = LockService.getScriptLock();
-      if (!lock.tryLock(5000)) throw new Error('系統正在處理其他寫入，請稍後再試；此次尚未開始寫入');
+    if (body.schema !== 4) throw new Error('前後端版本不一致，請重新載入');
+    const command = {...body}; delete command.token;
+    const book = SpreadsheetApp.openById(config.spreadsheetId);
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) throw new Error('系統忙碌，尚未開始寫入，請稍後再試');
+    const events = mergedEvents_(book), state = WarehouseCore.replay(events);
+    if (command.action === 'list') return mergedJSON_({ok:true,schema:4,state});
+    if (command.action === 'health') {
+      Object.keys(MERGED_HEADERS).forEach(name => mergedSheet_(book,name));
+      return mergedJSON_({ok:true,schema:4,events:events.length,parts:state.parts.length,locations:state.locations.length,stocks:state.stocks.length});
     }
-    const book = SpreadsheetApp.openById(WAREHOUSE.spreadsheetId);
-    const sheet = book.getSheetByName(WAREHOUSE.sheetName);
-    if (!sheet || sheet.getRange(1,1,1,10).getDisplayValues()[0].some((v,i) => v !== WAREHOUSE.headers[i])) throw new Error('請先執行 setupWarehouse');
-    const rows = sheet.getLastRow() < 2 ? [] : sheet.getRange(2,1,sheet.getLastRow()-1,10).getValues();
-    const items = rows.filter(r => r[0]).map(rowToItem_);
-    const log = quantityLog_(book,false);
-    const history = log && log.getLastRow()>1 ? log.getRange(2,1,log.getLastRow()-1,9).getValues() : [];
-    const latest = new Map();history.forEach(r=>latest.set(String(r[1]),r));
-    items.forEach(item=>{const entry=latest.get(item.id);item.quantityVersion=entry?String(entry[0]):'';if(entry)item.quantity=Number(entry[6])});
-    if (body.action === 'list') return json_({ok:true,items:items});
-    if (body.action === 'quantityHistory') return json_({ok:true,records:history.filter(r=>String(r[1])===body.id).slice(-50).reverse().map(r=>({requestId:r[0],operation:r[3],amount:r[4],before:r[5],after:r[6],reason:String(r[7]||'').replace(/^'(?=[=+@\-])/,'') ,time:r[8] instanceof Date?r[8].toISOString():String(r[8])}))});
-    if (body.action === 'adjustQuantity') {
-      if (!log) throw new Error('後端尚未初始化數量功能，請執行 setupWarehouse');
-      const item=items.find(x=>x.id===body.id);
-      if (!item || item.type!=='item') throw new Error('僅一般物品可調整數量');
-      if (!/^[a-zA-Z0-9-]{16,100}$/.test(String(body.requestId||''))) throw new Error('異動識別碼無效');
-      const previous=history.find(r=>String(r[0])===body.requestId);
-      if(previous){if(String(previous[1])!==item.id || previous[3]!==body.operation || Number(previous[4])!==Number(body.amount))throw new Error('異動識別碼已使用');return json_({ok:true,item:item,replayed:true})}
-      if (body.expectedQuantity!==item.quantity || String(body.expectedVersion||'')!==item.quantityVersion) throw new Error('數量已被其他裝置修改，請重新載入');
-      const next=adjustedQuantity_(item.quantity,body.operation,body.amount),reason=String(body.reason||'').trim();
-      if(reason.length>500)throw new Error('原因不得超過500字');
-      // 異動紀錄為數量依據，主表是可重建的最新值；避免跨工作表部分寫入造成重複扣庫。
-      log.appendRow([body.requestId,item.id,text_(item.name),body.operation,Number(body.amount),item.quantity,next,text_(reason),new Date()]);
-      SpreadsheetApp.flush();
-      let warning='';
-      try {sheet.getRange(rows.findIndex(r=>String(r[0])===item.id)+2,4).setValue(next);SpreadsheetApp.flush()}catch(error){warning='異動已記錄，主表數量待重新同步'}
-      return json_({ok:true,item:Object.assign({},item,{quantity:next,quantityVersion:body.requestId}),warning:warning});
+    if (command.action === 'history') {
+      const records = events.filter(event => event.changes.some(c => c.after.id === command.id));
+      return mergedJSON_({ok:true,schema:4,records:records.slice(-50).reverse().map(event => ({
+        requestId:event.requestId,time:event.time,actor:event.actor,action:event.action,reason:event.reason,changes:event.changes
+      }))});
     }
-    if (body.action === 'photo') {
-      const item = items.find(x => x.id === body.id);
-      if (!item || !item.photoId) throw new Error('找不到照片');
+    if (command.action === 'requestStatus') {
+      const event = events.find(x => x.requestId === command.requestId);
+      return mergedJSON_({ok:true,schema:4,committed:!!event,result:event ? event.result : null});
+    }
+    if (command.action === 'photo') {
+      const item = state.parts.concat(state.locations).find(x => x.id === command.id);
+      if (!item || !item.photoId || !config.folderId) throw new Error('找不到照片');
       const file = DriveApp.getFileById(item.photoId), parents = file.getParents();
       let allowed = false;
-      while (parents.hasNext()) if (parents.next().getId() === WAREHOUSE.folderId) allowed = true;
-      if (!allowed) throw new Error('照片不在指定資料夾');
+      while (parents.hasNext()) if (parents.next().getId() === config.folderId) allowed = true;
+      if (!allowed) throw new Error('照片不在指定私人資料夾');
       const blob = file.getBlob();
-      return json_({ok:true,photo:'data:'+blob.getContentType()+';base64,'+Utilities.base64Encode(blob.getBytes())});
+      if (!/^image\/(jpeg|png|webp)$/.test(blob.getContentType()) || blob.getBytes().length > 2100000) throw new Error('照片格式或大小無效');
+      return mergedJSON_({ok:true,schema:4,photo:'data:'+blob.getContentType()+';base64,'+Utilities.base64Encode(blob.getBytes())});
     }
-    if (body.action === 'create') {
-      const input = body.item || {}, name = String(input.name || '').trim();
-      if (!name || name.length > 200) throw new Error('名稱必填且不得超過200字');
-      if (!['room','cabinet','box','item'].includes(input.type)) throw new Error('物品種類無效');
-      const parent = input.parent || null;
-      validateParent_(items,parent);
-      const code = String(input.code || Utilities.getUuid()).trim();
-      if (!/^[\w\-]{1,100}$/.test(code)) throw new Error('編號只接受英文、數字、底線及連字號');
-      if (items.some(x => x.code.toLowerCase() === code.toLowerCase())) throw new Error('編號已使用');
-      const quantity = input.quantity === undefined ? 1 : Number(input.quantity);
-      if (!Number.isFinite(quantity) || quantity < 0) throw new Error('數量必須為非負數');
-      const note = String(input.note || '');
-      if (note.length > 5000) throw new Error('備註不得超過5000字');
-      let file = null;
-      if (input.photo) {
-        const match = String(input.photo).match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
-        if (!match || match[2].length > 2800000) throw new Error('照片需為JPEG、PNG或WebP且小於2MB');
-        file = DriveApp.getFolderById(WAREHOUSE.folderId).createFile(Utilities.newBlob(Utilities.base64Decode(match[2]),match[1],code+'.'+match[1].split('/')[1]));
-      }
-      try {
-        const row = [code,input.type,text_(name),quantity,parent || '','',file ? file.getUrl() : '',new Date(),text_(note),file ? file.getId() : ''];
-        sheet.appendRow(row);
-        SpreadsheetApp.flush();
-        return json_({ok:true,item:rowToItem_(row)});
-      } catch (error) { if (file) file.setTrashed(true); throw error; }
+    mergedEnabled_(config);
+    if (!/^[a-zA-Z0-9-]{16,100}$/.test(String(command.requestId || ''))) throw new Error('請求識別碼無效');
+    const fingerprint = mergedFingerprint_(command);
+    const previous = events.find(x => x.requestId === command.requestId);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint) throw new Error('相同請求識別碼不可使用不同內容');
+      return mergedJSON_({ok:true,schema:4,result:previous.result,replayed:true});
     }
-    if (body.action === 'move') {
-      const item = items.find(x => x.id === body.id);
-      if (!item) throw new Error('找不到物品');
-      validateParent_(items,body.parent || null);
-      let node = items.find(x => x.id === body.parent), seen = new Set();
-      while (node) {
-        if (node.id === item.id || seen.has(node.id)) throw new Error('不能移入自己或下層內容物');
-        seen.add(node.id); node = items.find(x => x.id === node.parent);
-      }
-      if (body.expectedParent !== item.parent) throw new Error('位置已被其他裝置修改，請重新載入');
-      const index = rows.findIndex(r => String(r[0]) === item.id);
-      sheet.getRange(index+2,5).setValue(body.parent || '');
-      SpreadsheetApp.flush();
-      return json_({ok:true,item:Object.assign({},item,{parent:body.parent || null})});
+    const generatedCode = !command.code && ['createPart','createLocation'].includes(command.action) ? mergedAutoCode_(state,command,config) : '';
+    const event = WarehouseCore.plan(state,command,{time:new Date().toISOString(),fingerprint,generatedCode});
+    const photoId = mergedPhoto_(command,config);
+    if (photoId) { event.changes[0].after.photoId = photoId; event.result.photoId = photoId; }
+    const json = JSON.stringify(event);
+    if (json.length > 45000) throw new Error('此操作內容過大，請縮短備註');
+    try {
+      // One append is the commit boundary. Master tables and audit are rebuildable projections.
+      // Do not acknowledge success before flush. A lost acknowledgement is NOT a rollback.
+      mergedSheet_(book,'WarehouseJournal').appendRow([json]); SpreadsheetApp.flush();
+    } catch (error) {
+      return mergedJSON_({ok:false,schema:4,outcomeUnknown:true,requestId:command.requestId,error:'未取得提交確認，請使用原請求重試或查詢結果，不要建立新請求'});
     }
-    throw new Error('不支援的操作');
-  } catch (error) { return json_({ok:false,error:error.message || '操作失敗'}); }
+    let warning = '';
+    try { mergedProject_(book,WarehouseCore.replay(events.concat([event])),events.concat([event])); }
+    catch (error) { warning = '操作已提交；資料表顯示副本待重建，請以網站讀取結果為準'; }
+    return mergedJSON_({ok:true,schema:4,result:event.result,warning});
+  } catch (error) { return mergedJSON_({ok:false,schema:4,error:error.message || '操作失敗'}); }
   finally { if (lock && lock.hasLock()) lock.releaseLock(); }
 }
-function validateParent_(items,id) {
-  if (id && !items.some(x => x.id === id && x.type !== 'item')) throw new Error('上級位置不存在或不是容器');
+function rebuildMergedProjections() {
+  const config = mergedConfig_(); mergedEnabled_(config);
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const book = SpreadsheetApp.openById(config.spreadsheetId), events = mergedEvents_(book);
+    mergedProject_(book,WarehouseCore.replay(events),events);
+  } finally { lock.releaseLock(); }
 }
-function text_(value) { return /^[=+@\-]/.test(value) ? "'"+value : value; }
-function rowToItem_(r) {
-  const clean = value => String(value || '').replace(/^'(?=[=+@\-])/,'');
-  return {id:String(r[0]),code:String(r[0]),type:String(r[1]),name:clean(r[2]),quantity:Number(r[3]),parent:r[4] ? String(r[4]) : null,photo:'',photoUrl:String(r[6] || ''),createdAt:r[7] instanceof Date ? r[7].toISOString() : String(r[7] || ''),note:clean(r[8]),photoId:String(r[9] || '')};
-}
-function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
-
-function quantityLog_(book,create) {
-  const headers=['異動識別碼','物品編號','物品名稱','操作','輸入數量','異動前數量','異動後數量','原因','時間'];
-  let sheet=book.getSheetByName('數量異動紀錄');
-  if(!sheet&&create){sheet=book.insertSheet('數量異動紀錄');sheet.getRange(1,1,1,9).setValues([headers]);sheet.setFrozenRows(1)}
-  if(sheet&&sheet.getRange(1,1,1,9).getDisplayValues()[0].some((v,i)=>v!==headers[i]))throw new Error('數量異動紀錄欄位不符');
-  return sheet;
-}
-function adjustedQuantity_(before,operation,amount) {
-  if(typeof amount!=='number'||!Number.isFinite(amount)||amount<0||amount>1e12)throw new Error('數量必須為有效非負數');
-  if(!['increase','decrease','set'].includes(operation))throw new Error('數量操作無效');
-  if(operation!=='set'&&amount===0)throw new Error('增加或減少數量必須大於0');
-  const next=Math.round((operation==='set'?amount:before+(operation==='increase'?amount:-amount))*1e6)/1e6;
-  if(!Number.isFinite(before)||before<0||next<0||next>1e12)throw new Error('調整後數量不得小於0或超過上限');
-  if(next===before)throw new Error('數量未改變');
-  return next;
+function mergedJSON_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
+function verifyMergedWarehouse() {
+  const config = mergedConfig_(), book = SpreadsheetApp.openById(config.spreadsheetId);
+  Object.keys(MERGED_HEADERS).forEach(name => mergedSheet_(book,name));
+  const events = mergedEvents_(book), state = WarehouseCore.replay(events);
+  const token = config.props.getProperty('WAREHOUSE_TOKEN') || '';
+  console.log(JSON.stringify({ok:true,schema:4,events:events.length,parts:state.parts.length,locations:state.locations.length,stocks:state.stocks.length,quantities:state.stocks.map(s=>s.quantity),tokenConfigured:token.length>=24}));
 }

@@ -1,0 +1,7 @@
+{
+  "name": "warehouse-merged-candidate",
+  "private": true,
+  "version": "4.0.0-preview",
+  "scripts": { "test": "node --test tests/*.test.cjs", "preview": "node tools/serve.cjs" },
+  "engines": { "node": ">=20" }
+}

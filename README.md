@@ -1,37 +1,80 @@
-# 庫位｜倉庫管理原型
+# 庫位｜零件與多儲位管理（合併開發版）
 
-手機優先的倉庫位置管理介面原型，用於驗證房間、櫃子、箱子及一般物品的建立、查詢與移動流程。
+以原本「庫位」GitHub 專案為主體，整合私人零件系統的專業欄位、分表、預留儲位與版本保護。schema 4 前後端必須一起更新，保留舊表並先完成備份與匯入對帳。
 
-## 目前功能
+## 已加入
 
-- 建立物品與容器
-- 拍照預覽
-- QR Code相機測試、模擬掃描與手動輸入
-- 名稱、編號與路徑搜尋
-- 階層位置樹
-- 移動容器後自動更新下層物品路徑
-- 防止容器移入自己的下層內容物
-- 使用 Google Sheets 保存資料、Google Drive 保存私人照片
-- 手動輸入存取金鑰連線、重新載入雲端資料
+- 原有手機介面、位置樹、QR／手動查詢、照片壓縮與共用金鑰連線。
+- Parts（零件）、Locations（儲位）、Stock（分儲位數量）分開管理；同一零件可放在多處。
+- 製造商、MPN、規格、單位、條碼、備註的編輯與搜尋。
+- ACTIVE／RESERVED 儲位，預留可未命名，預留儲位不可作放置目標。
+- 已知數量與未知分開；未知先盤點，不能當0增減。
+- 按儲位增減／盤點；搬動容器不改數量；部分庫存轉移以單筆提交記錄兩端變化。
+- 主檔、儲位、庫存各自的 Version；拒絕舊資料覆蓋。
+- 每次寫入使用 RequestID 及完整內容指紋。重試回傳原結果，相同ID不同內容拒絕。
+- 不確定結果先保留本頁的待確認請求，重新整理後可用原請求確認／重試。
+- 提交日誌可重建主表與操作紀錄；文字保留原內容，不使用讀回時刪單引號的做法。
 
-## 資料狀態
+## 不連線也可預覽
 
-網站已提供 Google Apps Script 雲端連線。連線時可勾選「記住這台裝置」，驗證成功後將金鑰儲存於此瀏覽器的 localStorage，重新整理及再次開啟會自動連線。不勾選僅保留於本次頁面。中斷連線保留記住的金鑰，「忘記金鑰」清除並斷線。驗證失敗清除失效金鑰，網路失敗保留。共用裝置請勿記住。原有 localStorage 資料不會自動上傳或清除。這是共用金鑰驗證，尚未提供個人帳號與角色權限。
+使用 Node.js 20+，不需安裝套件：
 
-## 後端設定
+    npm test
+    node tools/check.cjs
+    npm run preview
 
-將 `backend/Code.gs` 貼入 Apps Script，在指令碼屬性設定至少24字元的 `WAREHOUSE_TOKEN`，執行 `setupWarehouse`，再部署網頁應用程式（以擁有者執行、所有人可存取）。網站網址設定於 `cloud.js`，金鑰不可提交到 repository。
+開啟 http://127.0.0.1:8765/?preview=1 。
 
-照片接受 JPEG、PNG、WebP 且上限約2MB，保留 Drive 權限，不自動公開。跨裝置修改後按「重新載入」。新增請求若未收到確認，先重新載入確認是否已建立，避免重複新增。
+只有明確加上 preview=1 才使用記憶體示範資料；不讀取舊資料、不傳照片、不上傳、不保存庫存，重新整理即重設。預覽有一筆M3螺絲分放兩個抽屜（100／50）及一筆未知數量。
 
-## GitHub Pages
+config.js 沿用既有網站的雲端入口，沒有內嵌金鑰。schema 4 前端不能連到schema 3後端。GitHub Pages只部署main；部署前先核對後端版本。
 
-Repository內含GitHub Actions工作流程；將Pages來源設定為GitHub Actions後，每次更新`main`分支會自動發布。
+## 獨立測試後端設定
 
+正式資料切換前先用新的 Apps Script 測試專案、獨立空白試算表及私人照片資料夾。將 backend/Core.gs 與 backend/Code.gs 分別貼入同一專案。在指令碼屬性設定：
 
+| 屬性 | 用途 |
+| --- | --- |
+| MERGED_SPREADSHEET_ID | 新的空白測試資料庫ID，不能填現用資料庫 |
+| MERGED_PHOTO_FOLDER_ID | 私人測試照片資料夾ID |
+| WAREHOUSE_TOKEN | 至少24字元的測試金鑰，不能提交GitHub |
+| MERGED_WRITE_ENABLED | 明確設為 true 才允許初始化與寫入 |
 
-## 數量調整
+執行 setupMergedWarehouse；若發現既有庫存表或欄位不符會停止，不清空資料。完成測試專案與部署的個別授權後，再依選定的「共用金鑰」架構設定其測試入口。不可擴大既有私人V6系統的權限來充當本後端。
 
-一般物品詳情可增加、減少、盤點修正數量並查看最近50筆紀錄。更新 Apps Script 的 Code.gs（保留自己的 spreadsheetId、folderId），執行 setupWarehouse 建立「數量異動紀錄」，再將既有部署更新為新版本。WAREHOUSE_TOKEN 不變。
+獨立測試時將測試入口填入本機／測試分支config.js的endpoint，前端仍須輸入金鑰。所有資料讀取都驗證金鑰；版本必須為schema 4。
 
-異動紀錄是數量依據，主表數量為最新值的副本。請透過網站盤點修正，勿直接修改主表D欄或刪改異動紀錄。讀取時以最後一筆異動為準。使用鎖、版本檢查與異動識別碼避免並行覆蓋及重複執行。尚無個人帳號，紀錄不含操作人。
+## 提交與恢復
+
+WarehouseJournal 每列是一筆JSON提交，包含RequestID、內容指紋、前後值、結果、時間及「共用金鑰」操作者標示；不存金鑰或照片base64。新增零件及初始庫存、兩端轉移的變化放在同一筆提交。
+
+Parts、Locations、Stock、AuditLogs是可重建的顯示副本。讀取一律以提交日誌還原；副本寫失敗不回滾已確認提交。可在核准的測試專案手動執行 rebuildMergedProjections 重建。**不要直接改副本數量、刪日誌或降低編號計數器。**
+
+若提交或flush沒有確認，伺服器回報結果未知；畫面保留原請求並禁止其他寫入。用「確認上次操作」重送完全相同的請求，避免再次扣庫。待確認內容只存在目前瀏覽器的sessionStorage（同分頁），可能含照片及備註；關閉分頁、清除網站資料前應先確認。共用金鑰不代表個人帳號，不能把紀錄當作個人身分證明。
+
+此方案沒有宣稱Sheets具備跨服務交易。若底層單筆日誌也遭手動修改／毀損會停止；沒有自動修復被破壞的來源。未提交的驗證拒絕不會混入成功業務日誌，失敗監控另見測試報告限制。
+
+## 文字安全
+
+日誌使用JSON保存字串；顯示副本設為文字格式，並在RichText寫入前為每個值加一個輸入用單引號，由Sheets在寫入時消耗；真正的單引號因此完整保留。API從原始JSON讀取，不猜測或移除單引號。隔離Google Sheets已逐字回讀等號、加減號、@、真正單引號及前置空白，且getFormulas均為空。單獨使用RichText仍會被Sheets解析，不能省略寫入保護。
+
+官方介面：[Range.setRichTextValues](https://developers.google.com/apps-script/reference/spreadsheet/range#setRichTextValues(RichTextValue))、[RichTextValueBuilder.setText](https://developers.google.com/apps-script/reference/spreadsheet/rich-text-value-builder#setText(String))。
+
+## 移轉預演
+
+tools/migration.cjs 只讀取本機JSON匯出，不含Google API、不寫入目的地、不改QR、不自動合併同名零件：
+
+    node tools/migration.cjs exports/source.json
+
+格式示例見 docs/migration-input.example.json。需提供完整歷史，不可只匯出畫面最近50筆。回傳欄位對照、重號、同名、缺父節點、測試資料、未知數量、原歷史封存及來源雜湊。
+
+tools/import-plan.cjs 將已確認的預演與選擇轉為確定性提交日誌及顯示副本；本工具不連線或寫入Google。先建立私人備份，再透過已授權流程寫入新增工作表，回讀逐格核對。實際匯出、選擇及日誌不得提交公開GitHub。
+
+對已完成匯入且仍保留舊表的工作簿，不要執行setupMergedWarehouse；改執行唯讀的verifyMergedWarehouse核對欄位、重播結果與金鑰是否已設定。部署專案可定義MERGED_DEPLOYMENT_CONFIG，提供spreadsheetId、folderId、writeEnabled；指令碼屬性的同名設定優先，其中MERGED_WRITE_ENABLED=false始終禁止寫入。不要在設定物件保存金鑰。
+
+## 驗證與剩餘工作
+
+- 詳細測試及未驗項目見 docs/TEST_REPORT.md。
+- 單元與故障注入涵蓋業務核心、Google服務替身、瀏覽器請求恢復及移轉預演。
+- 真實Google讀寫、Drive照片、相機、手機畫面與大資料量仍須整合測試。
+- 前端與後端須一起升級；不能只合併main就假定資料庫已遷移。
