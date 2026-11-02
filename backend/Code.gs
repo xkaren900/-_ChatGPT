@@ -3,7 +3,7 @@ const MERGED_HEADERS = {
   WarehouseJournal: ['EventJSON'],
   Parts: ['id','code','name','manufacturer','mpn','specification','unit','barcode','note','status','photoId','createdAt','updatedAt','version'],
   Locations: ['id','code','name','type','parentId','status','note','photoId','createdAt','updatedAt','version'],
-  Stock: ['id','partId','locationId','quantity','quantityState','updatedAt','version'],
+  Stock: ['id','partId','locationId','quantity','quantityState','updatedAt','version','status'],
   AuditLogs: ['id','requestId','time','actor','action','reason','table','entityId','beforeJSON','afterJSON']
 };
 function mergedConfig_() {
@@ -105,7 +105,7 @@ function mergedProject_(book, state, events) {
     });
     rows.forEach(row => {
       const number = indexes.get(row.id) || sheet.getLastRow()+1;
-      const values = fields.map(field => row[field] === null || row[field] === undefined ? '' : String(row[field]));
+      const values = fields.map(field => field === 'status' ? (row[field] || 'ACTIVE') : row[field] === null || row[field] === undefined ? '' : String(row[field]));
       // Sheets parses RichText input too. Escape every cell once, including genuine apostrophes.
       // Sheets consumes the escape on write; API reads canonical JSON with no unescape heuristic.
       const range = sheet.getRange(number,1,1,fields.length);

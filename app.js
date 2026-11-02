@@ -2,7 +2,7 @@
 const typeName={room:'房間',cabinet:'櫃子',box:'箱子',item:'一般物品'};
 const typeIcon={room:'⌂',cabinet:'▥',box:'▣',item:'◆'};
 const nav=[['home','⌂','首頁'],['search','⌕','查詢'],['add','＋','新增'],['move','↪','移動'],['locations','☷','位置']];
-let state=WarehouseCore.empty(),items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false,detailGeneration=0;
+let archivedStocks=[],state=WarehouseCore.empty(),items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false,detailGeneration=0;
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
 const byId=id=>items.find(x=>x.id===id), partById=id=>state.parts.find(x=>x.id===id), locById=id=>state.locations.find(x=>x.id===id);
 function esc(value=''){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
@@ -38,7 +38,7 @@ function bindNavigation(){
   $('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();
   $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
 }
-function go(id){current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
+function go(id){const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
 function row(item,subtitle){
   return '<div class="item-row"><span class="type-icon '+item.type+'">'+typeIcon[item.type]+'</span><div class="row-body"><div class="row-title">'+esc(displayName(item))+'</div><div class="path">'+esc(subtitle||pathOf(item))+'</div>'+(item.type==='item'?'<small>'+esc(totalText(item))+'</small>':'<small>'+esc(item.status==='RESERVED'?'預留':'啟用')+'</small>')+'</div><button class="chevron" data-detail="'+esc(item.id)+'" aria-label="查看'+esc(displayName(item))+'">›</button></div>';
 }
@@ -57,14 +57,15 @@ function scanResult(code){
   if(!matches.length)toast('找不到這個標籤');
 }
 function renderSearch(){
-  $('#searchView').innerHTML='<p class="eyebrow">Find items</p><h1 class="page-title">查詢物品</h1><div class="toolbar"><label class="searchbox"><span>⌕</span><input id="query" placeholder="名稱、編號、MPN、規格或位置"></label><button class="scan-button" id="searchScan">▦ 掃描</button></div><div class="pills">'+[['all','全部'],['item','零件'],['room','房間'],['cabinet','櫃子'],['box','箱子'],['RESERVED','預留']].map(([id,name])=>'<button class="pill '+(id==='all'?'active':'')+'" data-filter="'+id+'">'+name+'</button>').join('')+'</div><div class="card" id="results"></div>';
+  $('#searchView').innerHTML='<p class="eyebrow">Find items</p><h1 class="page-title">查詢物品</h1><div class="toolbar"><label class="searchbox"><span>⌕</span><input id="query" placeholder="名稱、編號、MPN、規格或位置"></label><button class="scan-button" id="searchScan">▦ 掃描</button></div><div class="pills">'+[['all','全部'],['item','零件'],['room','房間'],['cabinet','櫃子'],['box','箱子'],['RESERVED','預留']].map(([id,name])=>'<button class="pill '+(id==='all'?'active':'')+'" data-filter="'+id+'">'+name+'</button>').join('')+'</div><p id="queryStatus" role="status">請輸入查詢條件</p><div class="card" id="results"></div>';
   let filter='all';
   const refresh=()=>{
     const q=$('#query').value.trim().toLocaleLowerCase('zh-Hant');
     const list=items.filter(x=>(filter==='all'||x.type===filter||x.status===filter)&&(!q||[displayName(x),x.id,x.barcode,x.manufacturer,x.mpn,x.specification,x.unit,x.note,pathOf(x)].some(v=>String(v||'').toLocaleLowerCase('zh-Hant').includes(q))));
+    $('#queryStatus').textContent='查詢完成，共 '+list.length+' 筆';
     $('#results').innerHTML=list.map(x=>row(x)).join('')||'<div class="empty">沒有符合項目</div>';bindDetails();
   };
-  $('#query').oninput=refresh;$$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));refresh();});
+  $('#query').oninput=()=>{ $('#queryStatus').textContent='查詢中…';refresh();};$$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));refresh();});
   $('#searchScan').onclick=()=>openScanner(scanResult);refresh();
 }
 function inputField(name,label,value='',type='text'){
@@ -84,19 +85,23 @@ function readPart(form){
 }
 async function submitForm(form,operation){
   if(form.dataset.busy)return;
-  form.dataset.busy='1';form.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const submit=form.querySelector('button.primary'),oldText=submit?.textContent;
+  form.dataset.busy='1';form.setAttribute('aria-busy','true');form.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const message=oldText?.includes('建立')?'新增中…':oldText?.includes('查詢')?'查詢中…':'儲存中…';
+  if(submit)submit.textContent=message;
+  let progress=form.querySelector('.operation-status');if(!progress){progress=document.createElement('p');progress.className='operation-status';progress.setAttribute('role','status');form.append(progress);}progress.textContent=message+' 請稍候，勿重複操作';
   try{await operation();}catch(error){toast(error.message);}
-  finally{delete form.dataset.busy;form.querySelectorAll('button').forEach(x=>x.disabled=false);}
+  finally{delete form.dataset.busy;form.removeAttribute('aria-busy');if(submit)submit.textContent=oldText;progress.textContent='';form.querySelectorAll('button').forEach(x=>x.disabled=false);}
 }
 function renderAdd(){
-  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><div class="form-grid two top-sm">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
+  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><div class="form-grid two top-sm">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001"></label><small class="hint">留空僅建立零件，不建立庫存；之後可在明細新增儲位與數量。填0代表已確認沒有庫存。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
   const form=$('#addForm');let photo='',photoBusy=false;
   const update=()=>{
     const isPart=form.elements.type.value==='item';
     $$('.part-fields').forEach(x=>x.hidden=!isPart);$$('.location-fields').forEach(x=>x.hidden=isPart);
     form.elements.name.required=isPart||form.elements.status.value==='ACTIVE';
     form.elements.quantity.disabled=!isPart;
-    form.elements.quantity.required=isPart;
+    form.elements.quantity.required=false;
   };
   form.elements.type.onchange=form.elements.status.onchange=update;update();
   $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
@@ -115,7 +120,8 @@ function renderAdd(){
     const isPart=form.elements.type.value==='item',name=form.elements.name.value;
     const same=items.filter(x=>normalizeName(x.name)===normalizeName(name)&&name.trim());
     if(same.length&&!confirm('已有相同名稱的項目，仍要新增不同物品嗎？'))return;
-    const command=isPart?{action:'createPart',input:readPart(form),initialStock:{locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)}}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
+    const command=isPart?{action:'createPart',input:readPart(form)}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
+    if(isPart&&form.elements.quantity.value.trim()!=='')command.initialStock={locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)};
     command.code=form.elements.code.value.trim();if(photo)command.photo=photo;
     const result=await warehouseCloud.mutate(command);toast('已建立 '+result.result.id);showDetail(result.result.id);
   });};
@@ -199,13 +205,15 @@ function showDetail(id){
   const generation=++detailGeneration,d=$('#detailDialog'),isPart=item.type==='item';
   if(d.open)d.close();
   const stocks=state.stocks.filter(s=>isPart?s.partId===id:s.locationId===id);
-  const stockHTML=isPart?'<h3>分儲位庫存</h3>'+stocks.map(s=>'<div class="item-row"><div class="row-body"><b>'+esc(locationPath(s.locationId))+'</b><p>'+esc(quantityText(s)+' '+item.unit)+'</p><small>版次 '+s.version+'</small></div><button class="small-button" data-adjust="'+esc(s.id)+'">調整／紀錄</button></div>').join('')+'<button class="secondary" id="addStock">新增存放位置</button>':'<h3>此儲位的零件</h3>'+stocks.map(s=>{const p=byId(s.partId);return p?row(p,quantityText(s)+' '+p.unit):'';}).join('')+'<h3>子儲位</h3>'+state.locations.filter(x=>x.parentId===id).map(x=>row(x)).join('');
+  const stockHTML=isPart?'<h3>分儲位庫存</h3>'+stocks.map(s=>'<div class="item-row"><div class="row-body"><b>'+esc(locationPath(s.locationId))+'</b><p>'+esc(quantityText(s)+' '+item.unit)+'</p><small>版次 '+s.version+'</small></div><button class="small-button" data-adjust="'+esc(s.id)+'">調整／紀錄</button><button class="small-button" data-stock-manage="'+esc(s.id)+'">更改／移除儲位</button></div>').join('')+'<button class="secondary" id="addStock">新增存放位置</button>'+archivedStocks.filter(s=>s.partId===id).map(s=>'<div class="item-row"><span>已移除：'+esc(locationPath(s.locationId))+'</span><button class="small-button" data-stock-restore="'+esc(s.id)+'">還原</button></div>').join(''):'<h3>此儲位的零件</h3>'+stocks.map(s=>{const p=byId(s.partId);return p?row(p,quantityText(s)+' '+p.unit):'';}).join('')+'<h3>子儲位</h3>'+state.locations.filter(x=>x.parentId===id).map(x=>row(x)).join('');
   d.innerHTML='<div class="dialog-head"><h2>'+typeName[item.type]+'</h2><button class="close" data-close-detail>×</button></div><div class="dialog-body"><div class="detail-photo" id="detailPhoto"><span>'+typeIcon[item.type]+' 尚未加入照片</span></div><div class="crumbs">'+esc(pathOf(item))+'</div><h2>'+esc(displayName(item))+'</h2><span class="code">'+esc(item.id)+'</span><p>版次 '+item.version+' · '+esc(item.status==='RESERVED'?'預留':'啟用')+'</p>'+(isPart?'<p>'+esc(totalText(item))+'</p><dl>'+[['製造商',item.manufacturer],['MPN',item.mpn],['規格',item.specification],['單位',item.unit],['條碼',item.barcode]].map(([k,v])=>'<dt>'+k+'</dt><dd>'+esc(v||'未填')+'</dd>').join('')+'</dl>':'')+'<p class="literal-text">'+esc(item.note)+'</p>'+stockHTML+'<div class="detail-actions"><button class="secondary" id="editItem">修改資料</button><button class="secondary" id="showHistory">操作紀錄</button><button class="primary" data-close-detail>關閉</button></div><div id="entityHistory"></div></div>';
   d.showModal();d.querySelectorAll('[data-close-detail]').forEach(b=>b.onclick=()=>d.close());
   d.querySelector('#editItem').onclick=()=>openEditDialog(item);
   d.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>showDetail(b.dataset.detail));
   if(isPart){
     d.querySelector('#addStock').onclick=()=>openStockDialog(item);
+    d.querySelectorAll('[data-stock-manage]').forEach(b=>b.onclick=()=>openStockManagement(item,state.stocks.find(s=>s.id===b.dataset.stockManage)));
+    d.querySelectorAll('[data-stock-restore]').forEach(b=>b.onclick=()=>openStockRestore(item,archivedStocks.find(s=>s.id===b.dataset.stockRestore)));
     d.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>openQuantityDialog(item,state.stocks.find(s=>s.id===b.dataset.adjust)));
   }
   d.querySelector('#showHistory').onclick=async()=>{
@@ -217,7 +225,7 @@ function showDetail(id){
     const image=document.createElement('img');image.src=result.photo;image.alt=displayName(item);d.querySelector('#detailPhoto').replaceChildren(image);
   }).catch(error=>toast(error.message));
 }
-const actionNames={createPart:'新增零件',createLocation:'新增儲位',updatePart:'修改零件',updateLocation:'修改儲位',moveLocation:'移動容器',createStock:'新增存放位置',adjustQuantity:'調整數量',transferStock:'轉移庫存'};
+const actionNames={archiveStock:'移除存放位置',restoreStock:'還原存放位置',relocateStock:'更改存放位置',createPart:'新增零件',createLocation:'新增儲位',updatePart:'修改零件',updateLocation:'修改儲位',moveLocation:'移動容器',createStock:'新增存放位置',adjustQuantity:'調整數量',transferStock:'轉移庫存'};
 function historyHTML(records){
   return records.length?records.map(event=>'<div class="history-entry"><b>'+esc(actionNames[event.action]||event.action)+'</b><div>'+esc(event.reason||'未填原因')+'</div>'+event.changes.filter(c=>c.table==='stocks').map(c=>'<div>'+esc(c.before?quantityText(c.before):'未建立')+' → '+esc(quantityText(c.after))+'</div>').join('')+'<small>'+esc(new Date(event.time).toLocaleString('zh-TW'))+' · '+esc(event.actor||'共用金鑰')+'</small></div>').join(''):'<p>尚無操作紀錄</p>';
 }
@@ -232,6 +240,19 @@ function openEditDialog(item){
     d.close();showDetail(item.id);toast('資料已更新');
   });};
 }
+
+function openStockManagement(part,stock){
+ const d=$('#editDialog');d.innerHTML='<div class="dialog-head"><h2>更改／移除儲位</h2><button type="button" class="close">×</button></div><form class="dialog-body"><p>目前：'+esc(locationPath(stock.locationId))+' · '+esc(quantityText(stock))+' '+esc(part.unit)+'</p><label>新的儲位<select class="field" name="locationId">'+locationOptions(stock.locationId===null?[]:[stock.locationId])+'</select></label><p>更改會搬移此位置的全部數量；目的已有庫存時合併，總數不變。</p><button class="primary" name="relocate">確認更改儲位</button><p>移除只適用於數量0或尚未盤點的記錄，歷史會保留並可還原。</p><label><input type="checkbox" name="confirmArchive"> 我確認要移除此存放記錄</label><button type="button" class="secondary" name="archive">移除此存放記錄</button></form>';
+ const form=d.querySelector('form');if(stock.locationId===null)form.elements.locationId.querySelector('option[value=""]').disabled=true;
+ attachLocationScanner(form.elements.locationId,'掃描目的儲位 QR');d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};
+ form.onsubmit=e=>{e.preventDefault();submitForm(form,async()=>{const target=form.elements.locationId.value||null;if(target===stock.locationId)throw Error('請選擇新的儲位');const to=state.stocks.find(s=>s.partId===part.id&&s.locationId===target);await warehouseCloud.mutate({action:'relocateStock',stockId:stock.id,expectedVersion:stock.version,toLocationId:target,expectedToVersion:to?to.version:null});d.close();showDetail(part.id);toast('儲位已更改');});};
+ form.elements.archive.onclick=()=>submitForm(form,async()=>{if(!form.elements.confirmArchive.checked)throw Error('請先勾選移除確認');await warehouseCloud.mutate({action:'archiveStock',stockId:stock.id,expectedVersion:stock.version});d.close();showDetail(part.id);toast('存放記錄已移除，可在明細還原');});d.showModal();
+}
+function openStockRestore(part,stock){
+ const d=$('#editDialog');d.innerHTML='<div class="dialog-head"><h2>還原存放位置</h2><button type="button" class="close">×</button></div><form class="dialog-body"><p>'+esc(locationPath(stock.locationId))+' · '+esc(quantityText(stock))+'</p><button class="primary">確認還原</button></form>';
+ const form=d.querySelector('form');d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};form.onsubmit=e=>{e.preventDefault();submitForm(form,async()=>{await warehouseCloud.mutate({action:'restoreStock',stockId:stock.id,expectedVersion:stock.version});d.close();showDetail(part.id);});};d.showModal();
+}
+
 function openStockDialog(part){
   const d=$('#editDialog'),used=state.stocks.filter(x=>x.partId===part.id).map(x=>x.locationId);
   d.innerHTML='<div class="dialog-head"><h2>新增存放位置</h2><button class="close" type="button">×</button></div><form class="dialog-body"><label>儲位<select class="field" name="locationId">'+locationOptions(used.filter(x=>x!==null))+'</select></label><label>數量<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small><button class="primary">建立庫存記錄</button></form>';
@@ -254,7 +275,7 @@ $('#demoScanButton').onclick=()=>{const item=items[0];item?finishScan(item.id):t
 $('#manualScanButton').onclick=()=>{const code=$('#manualScanCode').value.trim();if(code)finishScan(code);else toast('請先輸入編號');};
 $('#manualScanCode').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('#manualScanButton').click();}};
 warehouseCloud.onState=next=>{
-  state=next;items=state.locations.map(x=>({...x})).concat(state.parts.map(x=>({...x,type:'item'})));
+  archivedStocks=next.stocks.filter(s=>s.status==='ARCHIVED');state={...next,stocks:next.stocks.filter(s=>s.status!=='ARCHIVED')};items=state.locations.map(x=>({...x})).concat(state.parts.map(x=>({...x,type:'item'})));
   detailGeneration++;['detailDialog','editDialog','quantityDialog'].forEach(id=>{const d=$('#'+id);if(d.open)d.close();});
   render(current);bindNavigation();
 };

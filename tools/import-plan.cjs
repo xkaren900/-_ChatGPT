@@ -54,7 +54,7 @@ function buildImport(plan){
   WarehouseJournal:['EventJSON'],
   Parts:['id','code','name','manufacturer','mpn','specification','unit','barcode','note','status','photoId','createdAt','updatedAt','version'],
   Locations:['id','code','name','type','parentId','status','note','photoId','createdAt','updatedAt','version'],
-  Stock:['id','partId','locationId','quantity','quantityState','updatedAt','version'],
+  Stock:['id','partId','locationId','quantity','quantityState','updatedAt','version','status'],
   AuditLogs:['id','requestId','time','actor','action','reason','table','entityId','beforeJSON','afterJSON']
  };
  const rows={WarehouseJournal:events.map(event=>[JSON.stringify(event)])};

@@ -71,7 +71,7 @@ const warehouseCloud = (() => {
     finally { busy = false; controls(); }
   }
   async function sendPending() {
-    busy = true; controls();
+    busy = true; controls();status(pending.action.startsWith('create')?'新增中…請稍候':'儲存中…請稍候');
     try {
       const result = await request(pending);
       // Once acknowledged, do not turn a refresh failure into a second mutation.

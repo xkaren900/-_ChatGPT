@@ -143,8 +143,32 @@ var WarehouseCore = (() => {
       result = save('locations', before, {...before, parentId: targetId, updatedAt: time, version: before.version + 1});
     } else if (action === 'createStock') {
       result = newStock(command.partId, parentId(command.locationId), command.quantity, command.quantityState);
+    } else if (action === 'archiveStock' || action === 'restoreStock' || action === 'relocateStock') {
+      const before = state.stocks.find(x => x.id === command.stockId); version(before, command.expectedVersion);
+      if (action === 'restoreStock') {
+        if (before.status !== 'ARCHIVED') fail('此存放位置未移除');
+        activeLocation(state,before.locationId);
+        result = save('stocks',before,{...before,status:'ACTIVE',version:before.version+1,updatedAt:time});
+      } else {
+        if (before.status === 'ARCHIVED') fail('此存放位置已移除');
+        if (action === 'archiveStock') {
+          if (before.quantityState === 'KNOWN' && before.quantity !== 0) fail('此位置仍有庫存，請先更改儲位或轉移庫存');
+          result = save('stocks',before,{...before,status:'ARCHIVED',version:before.version+1,updatedAt:time});
+        } else {
+          const targetId=parentId(command.toLocationId);activeLocation(state,targetId);
+          if(targetId===before.locationId)fail('位置未改變');
+          const target=state.stocks.find(x=>x.id===stockKey(before.partId,targetId));
+          if(target?.status==='ARCHIVED')fail('目的存放位置已移除，請先還原');
+          if(target)version(target,command.expectedToVersion);else if(command.expectedToVersion!==null)fail('目的庫存版本衝突，請重新載入');
+          if(target&&(target.quantityState!=='KNOWN'||before.quantityState!=='KNOWN'))fail('合併存放位置前須先盤點兩端數量');
+          const after=target?{...target,quantity:amount(Math.round((target.quantity+before.quantity)*1e6)/1e6),version:target.version+1,updatedAt:time}:{...before,id:stockKey(before.partId,targetId),locationId:targetId,status:'ACTIVE',version:1,updatedAt:time};
+          const old=save('stocks',before,{...before,quantity:0,quantityState:'KNOWN',status:'ARCHIVED',version:before.version+1,updatedAt:time});
+          save('stocks',target||null,after);result={from:old,to:after};
+        }
+      }
     } else if (action === 'adjustQuantity') {
       const before = state.stocks.find(x => x.id === command.stockId); version(before, command.expectedVersion);
+      if (before.status === 'ARCHIVED') fail('此存放位置已移除');
       const part = state.parts.find(x => x.id === before.partId);
       if (!part || part.status !== 'ACTIVE') fail('零件不存在或已停用');
       activeLocation(state, before.locationId);
@@ -166,6 +190,7 @@ var WarehouseCore = (() => {
     } else if (action === 'transferStock') {
       const from = state.stocks.find(x => x.id === command.fromStockId);
       version(from, command.expectedFromVersion);
+      if (from.status === 'ARCHIVED') fail('來源存放位置已移除');
       let to, creating = false;
       if (own(command, 'toLocationId')) {
         const targetId = parentId(command.toLocationId);
@@ -178,6 +203,7 @@ var WarehouseCore = (() => {
         }
       } else to = state.stocks.find(x => x.id === command.toStockId);
       if (!creating) version(to, command.expectedToVersion);
+      if (to.status === 'ARCHIVED') fail('目的存放位置已移除，請先還原');
       if (from.id === to.id || from.partId !== to.partId) fail('轉移必須為同一零件的不同儲位');
       const part = state.parts.find(x => x.id === from.partId);
       if (!part || part.status !== 'ACTIVE') fail('零件不存在或已停用');
@@ -194,7 +220,7 @@ var WarehouseCore = (() => {
       time, actor: '共用金鑰', action, reason, changes, result: copy(result)};
   }
   function summary(state, partId) {
-    const stocks = state.stocks.filter(x => x.partId === partId);
+    const stocks = state.stocks.filter(x => x.partId === partId && x.status !== 'ARCHIVED');
     const known = stocks.filter(x => x.quantityState === 'KNOWN').reduce((sum,x) => sum + x.quantity, 0);
     return {known: Math.round(known * 1e6) / 1e6, unknown: stocks.filter(x => x.quantityState === 'UNKNOWN').length, locations: stocks.length};
   }
