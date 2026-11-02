@@ -71,7 +71,13 @@ function inputField(name,label,value='',type='text'){
   return '<label><span class="label">'+label+'</span><input class="field" name="'+name+'" type="'+type+'" value="'+esc(value)+'"></label>';
 }
 function partFields(item={}){
-  return inputField('manufacturer','製造商',item.manufacturer)+inputField('mpn','製造商料號 MPN',item.mpn)+inputField('specification','規格',item.specification)+inputField('unit','單位',item.unit||'個')+inputField('barcode','條碼',item.barcode);
+  return inputField('manufacturer','製造商',item.manufacturer)+inputField('mpn','製造商料號 MPN',item.mpn)+inputField('specification','規格',item.specification)+inputField('unit','單位',item.unit||'個')+inputField('barcode','商品／原廠條碼（選填）',item.barcode)+'<small class="hint">保存包裝上的原廠條碼，供查詢使用；不同於系統 QR 編號。可手動輸入，目前相機僅辨識 QR。</small>';
+}
+function confirmedQuantity(field){
+  if(field.value.trim()==='')throw new Error('請填入已確認的數量');
+  const value=Number(field.value);
+  if(!Number.isFinite(value)||value<0||value>1e12)throw new Error('數量必須為有效的非負數');
+  return value;
 }
 function readPart(form){
   return Object.fromEntries(['name','manufacturer','mpn','specification','unit','barcode','note'].map(k=>[k,form.elements[k].value]));
@@ -83,16 +89,16 @@ async function submitForm(form,operation){
   finally{delete form.dataset.busy;form.querySelectorAll('button').forEach(x=>x.disabled=false);}
 }
 function renderAdd(){
-  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="form-grid two">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+inputField('code','QR 編號（留空自動產生）')+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">數量狀態</span><select class="field" name="quantityState"><option value="KNOWN">已知</option><option value="UNKNOWN">未知</option></select></label><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" value="1"></label></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button><button type="button" class="secondary" id="scanAddCode">掃描編號</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
+  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="form-grid two">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
   const form=$('#addForm');let photo='',photoBusy=false;
   const update=()=>{
     const isPart=form.elements.type.value==='item';
     $$('.part-fields').forEach(x=>x.hidden=!isPart);$$('.location-fields').forEach(x=>x.hidden=isPart);
     form.elements.name.required=isPart||form.elements.status.value==='ACTIVE';
-    form.elements.quantity.disabled=!isPart||form.elements.quantityState.value==='UNKNOWN';
-    form.elements.quantity.required=isPart&&form.elements.quantityState.value==='KNOWN';
+    form.elements.quantity.disabled=!isPart;
+    form.elements.quantity.required=isPart;
   };
-  form.elements.type.onchange=form.elements.status.onchange=form.elements.quantityState.onchange=update;update();
+  form.elements.type.onchange=form.elements.status.onchange=update;update();
   $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
   $('#scanAddCode').onclick=()=>openScanner(code=>form.elements.code.value=code);
   const handle=async event=>{
@@ -108,7 +114,7 @@ function renderAdd(){
     const isPart=form.elements.type.value==='item',name=form.elements.name.value;
     const same=items.filter(x=>normalizeName(x.name)===normalizeName(name)&&name.trim());
     if(same.length&&!confirm('已有相同名稱的項目，仍要新增不同物品嗎？'))return;
-    const command=isPart?{action:'createPart',input:readPart(form),initialStock:{locationId:form.elements.locationId.value||null,quantityState:form.elements.quantityState.value,quantity:form.elements.quantityState.value==='UNKNOWN'?null:Number(form.elements.quantity.value)}}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
+    const command=isPart?{action:'createPart',input:readPart(form),initialStock:{locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)}}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
     command.code=form.elements.code.value.trim();if(photo)command.photo=photo;
     const result=await warehouseCloud.mutate(command);toast('已建立 '+result.result.id);showDetail(result.result.id);
   });};
@@ -189,13 +195,12 @@ function openEditDialog(item){
 }
 function openStockDialog(part){
   const d=$('#editDialog'),used=state.stocks.filter(x=>x.partId===part.id).map(x=>x.locationId);
-  d.innerHTML='<div class="dialog-head"><h2>新增存放位置</h2><button class="close" type="button">×</button></div><form class="dialog-body"><label>儲位<select class="field" name="locationId">'+locationOptions(used.filter(x=>x!==null))+'</select></label><label>數量狀態<select class="field" name="quantityState"><option value="UNKNOWN">未知，稍後盤點</option><option value="KNOWN">已知</option></select></label><label>數量<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" value="0" disabled></label><button class="primary">建立庫存記錄</button></form>';
+  d.innerHTML='<div class="dialog-head"><h2>新增存放位置</h2><button class="close" type="button">×</button></div><form class="dialog-body"><label>儲位<select class="field" name="locationId">'+locationOptions(used.filter(x=>x!==null))+'</select></label><label>數量<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small><button class="primary">建立庫存記錄</button></form>';
   const form=d.querySelector('form');if(used.includes(null))form.elements.locationId.querySelector('option[value=""]').disabled=true;
-  form.elements.quantityState.onchange=()=>{form.elements.quantity.disabled=form.elements.quantityState.value==='UNKNOWN';form.elements.quantity.required=!form.elements.quantity.disabled;};
   d.showModal();d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};
   form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
     if(used.includes(form.elements.locationId.value||null))throw new Error('該位置已有庫存記錄');
-    await warehouseCloud.mutate({action:'createStock',partId:part.id,locationId:form.elements.locationId.value||null,quantityState:form.elements.quantityState.value,quantity:form.elements.quantityState.value==='UNKNOWN'?null:Number(form.elements.quantity.value)});
+    await warehouseCloud.mutate({action:'createStock',partId:part.id,locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)});
     d.close();showDetail(part.id);toast('已新增存放位置');
   });};
 }
