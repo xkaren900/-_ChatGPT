@@ -1,6 +1,6 @@
 # 庫位｜零件與多儲位管理（合併開發版）
 
-以原本「庫位」GitHub 專案為主體，整合私人零件系統的專業欄位、分表、預留儲位與版本保護。本分支為 schema 4 的開發候選，**不是已切換的正式網站或已遷移的資料庫**。
+以原本「庫位」GitHub 專案為主體，整合私人零件系統的專業欄位、分表、預留儲位與版本保護。schema 4 前後端必須一起更新，保留舊表並先完成備份與匯入對帳。
 
 ## 已加入
 
@@ -27,7 +27,7 @@
 
 只有明確加上 preview=1 才使用記憶體示範資料；不讀取舊資料、不傳照片、不上傳、不保存庫存，重新整理即重設。預覽有一筆M3螺絲分放兩個抽屜（100／50）及一筆未知數量。
 
-本候選的 config.js 刻意不包含既有網站的雲端網址。它不能直接連到 schema 3 後端。GitHub Pages 目前只部署 main；本開發分支不自動替換既有網站。
+config.js 沿用既有網站的雲端入口，沒有內嵌金鑰。schema 4 前端不能連到schema 3後端。GitHub Pages只部署main；部署前先核對後端版本。
 
 ## 獨立測試後端設定
 
@@ -42,7 +42,7 @@
 
 執行 setupMergedWarehouse；若發現既有庫存表或欄位不符會停止，不清空資料。完成測試專案與部署的個別授權後，再依選定的「共用金鑰」架構設定其測試入口。不可擴大既有私人V6系統的權限來充當本後端。
 
-將測試入口填入本機／測試分支 config.js 的 endpoint，前端仍須輸入金鑰。所有讀取都驗證金鑰；版本必須為 schema 4。此分支沒有執行任何 Apps Script 部署、授權或資料移轉。
+獨立測試時將測試入口填入本機／測試分支config.js的endpoint，前端仍須輸入金鑰。所有資料讀取都驗證金鑰；版本必須為schema 4。
 
 ## 提交與恢復
 
@@ -56,7 +56,7 @@ Parts、Locations、Stock、AuditLogs是可重建的顯示副本。讀取一律�
 
 ## 文字安全
 
-日誌使用JSON保存字串（以物件開頭，不是使用者公式）；顯示副本使用RichText文字寫入；API從原始JSON讀取，不猜測或移除單引號。此路徑的本機替身測試已通過，**仍需在隔離Google Sheets確認字面文字與getFormulas回讀**，不可把mock視為平台驗證。
+日誌使用JSON保存字串；顯示副本設為文字格式，並在RichText寫入前為每個值加一個輸入用單引號，由Sheets在寫入時消耗；真正的單引號因此完整保留。API從原始JSON讀取，不猜測或移除單引號。隔離Google Sheets已逐字回讀等號、加減號、@、真正單引號及前置空白，且getFormulas均為空。單獨使用RichText仍會被Sheets解析，不能省略寫入保護。
 
 官方介面：[Range.setRichTextValues](https://developers.google.com/apps-script/reference/spreadsheet/range#setRichTextValues(RichTextValue))、[RichTextValueBuilder.setText](https://developers.google.com/apps-script/reference/spreadsheet/rich-text-value-builder#setText(String))。
 

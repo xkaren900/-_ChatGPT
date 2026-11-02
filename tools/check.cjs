@@ -5,5 +5,8 @@ for(const file of ['app.js','cloud.js','config.js','domain.js','photo.js','previ
 }
 if(fs.readFileSync(path.join(root,'domain.js'),'utf8')!==fs.readFileSync(path.join(root,'backend/Core.gs'),'utf8'))throw Error('Domain copies differ');
 const config=fs.readFileSync(path.join(root,'config.js'),'utf8');
-if(/AKfycb|WAREHOUSE_TOKEN\s*[:=]\s*['"][^'"]+/.test(config))throw Error('Unexpected live configuration');
-console.log('9 browser/backend scripts parsed; domain copies match; candidate has no live endpoint.');
+if(/WAREHOUSE_TOKEN\s*[:=]\s*['"][^'"]+/.test(config))throw Error('Credentials must not be committed');
+const sandbox={window:{}};vm.runInNewContext(config,sandbox);
+const endpoint=sandbox.window.WAREHOUSE_CONFIG.endpoint;
+if(endpoint&&!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(endpoint))throw Error('Invalid Apps Script endpoint');
+console.log('9 browser/backend scripts parsed; domain copies match; endpoint valid; no embedded shared key.');

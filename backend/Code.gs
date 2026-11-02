@@ -106,8 +106,11 @@ function mergedProject_(book, state, events) {
     rows.forEach(row => {
       const number = indexes.get(row.id) || sheet.getLastRow()+1;
       const values = fields.map(field => row[field] === null || row[field] === undefined ? '' : String(row[field]));
-      // Literal text projection. API reads authoritative JSON, never strips apostrophes.
-      sheet.getRange(number,1,1,fields.length).setRichTextValues([values.map(value => SpreadsheetApp.newRichTextValue().setText(value).build())]);
+      // Sheets parses RichText input too. Escape every cell once, including genuine apostrophes.
+      // Sheets consumes the escape on write; API reads canonical JSON with no unescape heuristic.
+      const range = sheet.getRange(number,1,1,fields.length);
+      range.setNumberFormat('@');
+      range.setRichTextValues([values.map(value => SpreadsheetApp.newRichTextValue().setText("'" + value).build())]);
       indexes.set(row.id,number);
     });
   }

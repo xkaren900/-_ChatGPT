@@ -7,8 +7,9 @@ function service(){
   const rows=[];const s={rows,getName:()=>name,getLastRow:()=>rows.length,setFrozenRows:()=>{},
    getRange:(row,col,count,width)=>({getValues:()=>Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>rows[row+i-1]?.[col+j-1]??'')),
     getDisplayValues:()=>Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>String(rows[row+i-1]?.[col+j-1]??''))),
+    setNumberFormat:format=>{assert.equal(format,'@');},
     setValues:values=>{assert.equal(held,true);values.forEach((r,i)=>{rows[row+i-1]||=[];r.forEach((v,j)=>rows[row+i-1][col+j-1]=v);});},
-    setRichTextValues:values=>{assert.equal(held,true);if(faults.projection){faults.projection=false;throw Error('projection fault');}values.forEach((r,i)=>{rows[row+i-1]||=[];r.forEach((v,j)=>{assert.equal(v.literal,true);rows[row+i-1][col+j-1]=v.value;});});}
+    setRichTextValues:values=>{assert.equal(held,true);if(faults.projection){faults.projection=false;throw Error('projection fault');}values.forEach((r,i)=>{rows[row+i-1]||=[];r.forEach((v,j)=>{assert.equal(v.literal,true);assert.ok(v.value.startsWith("'"),'Every projection cell must be escaped on write');rows[row+i-1][col+j-1]=v.value.slice(1);});});}
    }),
    appendRow:row=>{
     assert.equal(held,true);
