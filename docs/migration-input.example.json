@@ -1,0 +1,12 @@
+{
+  "github": {
+    "items": [
+      {"id":"LOC-A-ROOM","code":"LOC-A-ROOM","type":"room","name":"範例房間","parent":null},
+      {"id":"ITEM-SCREW-01","code":"ITEM-SCREW-01","type":"item","name":"範例螺絲","parent":"LOC-A-ROOM","quantity":9}
+    ],
+    "history": [
+      {"requestId":"legacy-example-000001","itemId":"ITEM-SCREW-01","operation":"decrease","amount":1,"before":10,"after":9,"reason":"範例領用","time":"2026-11-02T00:00:00Z"}
+    ]
+  },
+  "private": {"parts":[],"locations":[],"stocks":[]}
+}

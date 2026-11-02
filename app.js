@@ -1,32 +1,216 @@
-const seed=[{id:'r1',code:'LOC-A-ROOM',name:'A房間',type:'room',parent:null,note:'主要工具與耗材區'},{id:'c1',code:'LOC-B-CABINET',name:'B櫃子',type:'cabinet',parent:'r1',note:'靠北側牆'},{id:'b1',code:'LOC-C-BOX',name:'C箱子',type:'box',parent:'c1',note:'藍色收納箱'},{id:'i1',code:'ITEM-DRILL-01',name:'充電電鑽',type:'item',parent:'b1',note:'含兩顆電池'},{id:'i2',code:'ITEM-SCREW-01',name:'木工螺絲 30mm',type:'item',parent:'b1',note:'約120顆'},{id:'c2',code:'LOC-D-CABINET',name:'D櫃子',type:'cabinet',parent:'r1',note:'備用存放區'}];
-const typeName={room:'房間',cabinet:'櫃子',box:'箱子',item:'一般物品'},typeIcon={room:'⌂',cabinet:'▥',box:'▣',item:'◆'};
+/* GitHub UI, backed by separate parts / locations / stock collections. */
+const typeName={room:'房間',cabinet:'櫃子',box:'箱子',item:'一般物品'};
+const typeIcon={room:'⌂',cabinet:'▥',box:'▣',item:'◆'};
 const nav=[['home','⌂','首頁'],['search','⌕','查詢'],['add','＋','新增'],['move','↪','移動'],['locations','☷','位置']];
-let items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false;
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],byId=id=>items.find(x=>x.id===id),children=id=>items.filter(x=>x.parent===id);
-function esc(s=''){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}function descendants(id){return children(id).flatMap(x=>[x,...descendants(x.id)])}
-function pathOf(item){let out=[],seen=new Set(),x=item;while(x&&!seen.has(x.id)){out.unshift(x.name);seen.add(x.id);x=byId(x.parent)}return out.join(' › ')}
-function normalizeName(value=''){return String(value).normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('zh-Hant')}
-function generateCode(type){const prefix={room:'LOC',cabinet:'CAB',box:'BOX',item:'ITM'}[type]||'ITM',now=new Date(),date=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`,pattern=new RegExp(`^${prefix}-${date}-(\\d+)$`,'i'),last=items.reduce((max,x)=>{const match=String(x.code||'').match(pattern);return match?Math.max(max,Number(match[1])):max},0);return `${prefix}-${date}-${String(last+1).padStart(4,'0')}`}
-function confirmDuplicate(matches,parentId){return new Promise(resolve=>{const d=$('#duplicateDialog'),sameParent=matches.some(x=>(x.parent||'')===(parentId||''));let settled=false;const finish=value=>{if(settled)return;settled=true;d.close();resolve(value)};d.innerHTML=`<div class="dialog-head"><h2>發現同名物品</h2><button class="close" data-duplicate-cancel>×</button></div><div class="dialog-body"><div class="duplicate-warning ${sameParent?'strong':''}">${sameParent?'目前選擇的位置內已有相同名稱，可能只需要修改現有物品。':'其他位置已有相同名稱，請確認是否仍要建立新物品。'}</div><div class="duplicate-list">${matches.map(x=>`<div class="duplicate-item"><div><b>${esc(x.name)}</b><span>${esc(pathOf(x))}</span><code>${esc(x.code)}</code></div><button class="small-button" data-existing="${x.id}">查看</button></div>`).join('')}</div><div class="detail-actions"><button class="secondary" data-duplicate-cancel>取消</button><button class="primary" data-duplicate-create>仍要新增</button></div></div>`;d.querySelectorAll('[data-duplicate-cancel]').forEach(b=>b.onclick=()=>finish('cancel'));d.querySelector('[data-duplicate-create]').onclick=()=>finish('create');d.querySelectorAll('[data-existing]').forEach(b=>b.onclick=()=>{const id=b.dataset.existing;finish('view');showDetail(id)});d.oncancel=e=>{e.preventDefault();finish('cancel')};d.showModal()})}
-function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),2300)}
-function navHtml(){return nav.map(([id,icon,label])=>`<button class="nav-button ${id==='add'?'add':''} ${current===id?'active':''}" data-go="${id}"><span>${icon}</span><span>${label}</span></button>`).join('')}
-function bindNavigation(){$('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();$$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go))}
-function go(id){current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');bindNavigation();render(id);scrollTo({top:0,behavior:'smooth'})}
-function row(x){return `<div class="item-row"><span class="type-icon ${x.type}">${typeIcon[x.type]}</span><div class="row-body"><div class="row-title">${esc(x.name)}</div><div class="path">${esc(pathOf(x))}</div></div><button class="chevron" data-detail="${x.id}" aria-label="查看${esc(x.name)}">›</button></div>`}
-function bindDetails(){$$('[data-detail]').forEach(b=>b.onclick=()=>showDetail(b.dataset.detail))}
-function renderHome(){const positions=items.filter(x=>x.type!=='item').length;$('#homeView').innerHTML=`<div class="hero"><p class="eyebrow">Warehouse overview</p><h1>今天要找什麼？</h1><p>掃描標籤、建立物品，或快速確認目前存放位置。</p><div class="stats"><div class="stat"><b>${items.length}</b><span>全部節點</span></div><div class="stat"><b>${positions}</b><span>位置與容器</span></div><div class="stat"><b>${items.length-positions}</b><span>一般物品</span></div></div></div><div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>對準物品或位置標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>拍照並指定上級位置</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動物品</b><small>更換箱子或物品位置</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>展開房間與容器</small></button></div><div class="section-head"><h2>最近項目</h2><button class="link-button" data-go="search">查看全部</button></div><div class="card">${items.slice(-4).reverse().map(row).join('')}</div>`;bindNavigation();bindDetails();$('#homeScan').onclick=()=>openScanner(code=>{const x=items.find(i=>i.code===code);x?showDetail(x.id):toast('找不到這個QR Code')})}
-function renderSearch(){const view=$('#searchView');view.innerHTML=`<p class="eyebrow">Find items</p><h1 class="page-title">查詢物品</h1><p class="page-sub">輸入名稱、編號，或直接掃描標籤。</p><div class="toolbar"><label class="searchbox"><span>⌕</span><input id="query" placeholder="搜尋物品或位置"></label><button class="scan-button" id="searchScan">▦ 掃描</button></div><div class="pills">${[['all','全部'],['room','房間'],['cabinet','櫃子'],['box','箱子'],['item','物品']].map(([id,l])=>`<button class="pill ${id==='all'?'active':''}" data-filter="${id}">${l}</button>`).join('')}</div><div class="card" id="results"></div>`;let filter='all';const refresh=()=>{const q=$('#query').value.trim().toLowerCase();const list=items.filter(x=>(filter==='all'||x.type===filter)&&(!q||[x.name,x.code,pathOf(x)].some(v=>v.toLowerCase().includes(q))));$('#results').innerHTML=list.length?list.map(row).join(''):'<div class="empty">找不到符合的物品</div>';bindDetails()};$('#query').oninput=refresh;$$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));refresh()});$('#searchScan').onclick=()=>openScanner(code=>{$('#query').value=code;refresh()});refresh()}
-function options(containers=false,exclude=[]){return '<option value="">未指定</option>'+items.filter(x=>(!containers||x.type!=='item')&&!exclude.includes(x.id)).map(x=>`<option value="${x.id}">${esc(pathOf(x))}</option>`).join('')}
-function renderAdd(){$('#addView').innerHTML=`<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><p class="page-sub">填寫基本資料，再指定它放在哪裡。</p><form class="card form-card" id="addForm"><div class="form-grid two"><label><span class="label">物品名稱 <span class="required">*</span></span><input class="field" name="name" required placeholder="例如：充電電鑽"></label><label><span class="label">物品類型 <span class="required">*</span></span><select class="field" name="type"><option value="item">一般物品</option><option value="box">箱子</option><option value="cabinet">櫃子</option><option value="room">房間</option></select></label><label><span class="label">數量</span><input class="field" name="quantity" type="number" min="0" step="any" value="1" required></label><label><span class="label">QR Code（選填）</span><span class="field-pair"><input class="field" name="code" placeholder="留空即由系統自動產生"><button type="button" class="small-button" id="scanCode">掃描</button></span><span class="hint">若留空，建立時會自動產生唯一編號；已輸入的編號不可重複。</span></label><label><span class="label">上級位置</span><span class="field-pair"><select class="field" name="parent">${options(true)}</select><button type="button" class="small-button" id="scanParent">掃描</button></span></label></div><div class="top-sm"><span class="label">物品照片</span><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden></div><label class="top-sm" style="display:block"><span class="label">備註</span><textarea class="field" name="note" rows="3" placeholder="顏色、數量或其他辨識資訊"></textarea></label><button class="primary top-sm">建立物品</button></form>`;let photo='';$('#scanCode').onclick=()=>openScanner(c=>$('#addForm').code.value=c);$('#scanParent').onclick=()=>openScanner(c=>{const x=items.find(i=>i.code===c&&i.type!=='item');if(x)$('#addForm').parent.value=x.id;else toast('這個標籤不是可用位置')});$('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();const handlePhoto=async e=>{const file=e.target.files[0];if(!file)return;const box=$('#photoBox'),button=$('#addForm button.primary'),preview=box.querySelector('span');button.disabled=true;$('#takePhoto').disabled=$('#choosePhoto').disabled=true;e.target.disabled=true;photo='';preview.textContent='正在處理照片…';try{photo=await prepareWarehousePhoto(file);box.querySelector('img')?.remove();const image=document.createElement('img');image.src=photo;image.alt='照片預覽';box.prepend(image);preview.textContent='照片已壓縮，可使用下方按鈕重新選擇'}catch(error){box.querySelector('img')?.remove();preview.textContent='照片處理失敗，請重新拍照或選擇照片';toast(error.message)}finally{button.disabled=false;$('#takePhoto').disabled=$('#choosePhoto').disabled=false;e.target.disabled=false;e.target.value=''}};$('#photoCamera').onchange=$('#photoLibrary').onchange=handlePhoto;$('#addForm').onsubmit=async e=>{e.preventDefault();const d=new FormData(e.target),name=d.get('name').trim(),type=d.get('type'),parent=d.get('parent')||null;let code=d.get('code').trim();if(code&&items.some(x=>String(x.code).toLowerCase()===code.toLowerCase()))return toast('這個QR Code已經使用');const matches=items.filter(x=>normalizeName(x.name)===normalizeName(name));if(matches.length){const action=await confirmDuplicate(matches,parent);if(action!=='create')return}const generated=!code;if(generated)code=generateCode(type);if(photo&&(!photo.startsWith('data:image/jpeg;base64,')||photo.split(',')[1].length>2000000))return toast('照片尚未完成壓縮，請重新選擇照片');const x={id:crypto.randomUUID(),name,type,code,parent,quantity:Number(d.get('quantity')),note:d.get('note').trim(),photo};const button=e.target.querySelector('button.primary');button.disabled=true;try{const result=await warehouseCloud.request({action:'create',item:x});items.push(result.item);toast(`已建立 ${x.name}${generated?'，並自動產生編號':''}`);showDetail(result.item.id)}catch(error){toast(error.message)}finally{button.disabled=false}}}
-function renderMove(){$('#moveView').innerHTML=`<p class="eyebrow">Relocate</p><h1 class="page-title">移動物品</h1><p class="page-sub">更換上級位置後，內容物的完整路徑會自動更新。</p><form class="card form-card" id="moveForm"><div class="form-grid"><label><span class="label">要移動的物品 <span class="required">*</span></span><span class="field-pair"><select class="field" name="item" required>${options()}</select><button type="button" class="small-button" id="scanMoveItem">掃描</button></span></label><label><span class="label">新的上級位置 <span class="required">*</span></span><span class="field-pair"><select class="field" name="parent" required>${options(true)}</select><button type="button" class="small-button" id="scanMoveParent">掃描</button></span></label></div><div class="move-preview" id="movePreview"><div class="empty">選擇物品與新位置後，這裡會顯示路徑變更。</div></div><button class="primary">確認移動</button></form>`;const refresh=()=>{const x=byId($('#moveForm').item.value),p=byId($('#moveForm').parent.value);if(!x||!p)return;const updated={...x,parent:p.id},count=descendants(x.id).length;$('#movePreview').innerHTML=`<div class="move-line"><span>原位置</span><b>${esc(pathOf(x))}</b></div><div class="move-line"><span>新位置</span><b>${esc(pathOf(updated))}</b></div>${count?`<div class="impact">容器內有${count}個下層項目，完整路徑也會一起更新。</div>`:''}`};$('#moveForm').item.onchange=refresh;$('#moveForm').parent.onchange=refresh;$('#scanMoveItem').onclick=()=>openScanner(c=>{const x=items.find(i=>i.code===c);if(x){$('#moveForm').item.value=x.id;refresh()}else toast('找不到這個物品')});$('#scanMoveParent').onclick=()=>openScanner(c=>{const x=items.find(i=>i.code===c&&i.type!=='item');if(x){$('#moveForm').parent.value=x.id;refresh()}else toast('這個標籤不是可用位置')});$('#moveForm').onsubmit=async e=>{e.preventDefault();const x=byId(e.target.item.value),p=byId(e.target.parent.value);if(!x||!p)return toast('請先選擇物品與位置');if(x.id===p.id||descendants(x.id).some(d=>d.id===p.id))return toast('不能把容器放進自己的內容物');const button=e.target.querySelector('button.primary');button.disabled=true;try{const result=await warehouseCloud.request({action:'move',id:x.id,parent:p.id,expectedParent:x.parent});Object.assign(x,result.item);toast('已移動 '+x.name);renderMove()}catch(error){toast(error.message)}finally{button.disabled=false}}}
-function tree(parent=null){return items.filter(x=>x.parent===parent).map(x=>`<div><div class="tree-line"><span class="type-icon ${x.type}" style="width:35px;height:35px">${typeIcon[x.type]}</span><button class="tree-name" data-detail="${x.id}">${esc(x.name)}</button>${children(x.id).length?`<span class="tree-count">${children(x.id).length}</span>`:''}</div>${children(x.id).length?`<div class="tree-children">${tree(x.id)}</div>`:''}</div>`).join('')}
-function renderLocations(){$('#locationsView').innerHTML=`<p class="eyebrow">Location tree</p><h1 class="page-title">位置瀏覽</h1><p class="page-sub">從房間逐層查看每個櫃子與箱子的內容。</p><div class="card tree-card">${tree()||'<div class="empty">尚未建立位置</div>'}</div>`;bindDetails()}
-function render(id){({home:renderHome,search:renderSearch,add:renderAdd,move:renderMove,locations:renderLocations}[id]||renderHome)()}
-function showDetail(id){const x=byId(id);if(!x)return;const d=$('#detailDialog');d.innerHTML=`<div class="dialog-head"><h2>${typeName[x.type]}</h2><button class="close" data-detail-close>×</button></div><div class="dialog-body"><div class="detail-photo">${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}">`:`<span>${typeIcon[x.type]}　尚未加入照片</span>`}</div><div class="crumbs">${esc(pathOf(x))}</div><h2 class="detail-title">${esc(x.name)}</h2><span class="code">${esc(x.code)}</span>${x.type==='item'?`<p>目前數量：<b>${esc(x.quantity)}</b> <button class="small-button" data-quantity>調整數量</button></p>`:''}${x.note?`<p>${esc(x.note)}</p>`:''}<div class="detail-actions"><button class="secondary" data-move>移動位置</button><button class="primary" data-close-detail>關閉</button></div></div>`;d.showModal();if(x.type==='item')d.querySelector('[data-quantity]').onclick=()=>openQuantityDialog(x);if(x.photoId&&!x.photo){warehouseCloud.request({action:'photo',id:x.id}).then(result=>{if(!d.open||byId(id)!==x)return;x.photo=result.photo;const img=document.createElement('img');img.src=result.photo;img.alt=x.name;d.querySelector('.detail-photo').replaceChildren(img)}).catch(error=>toast(error.message))}d.querySelector('[data-detail-close]').onclick=d.querySelector('[data-close-detail]').onclick=()=>d.close();d.querySelector('[data-move]').onclick=()=>{d.close();go('move');$('#moveForm').item.value=x.id;$('#moveForm').item.dispatchEvent(new Event('change'))}}
+let state=WarehouseCore.empty(),items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false,detailGeneration=0;
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const byId=id=>items.find(x=>x.id===id), partById=id=>state.parts.find(x=>x.id===id), locById=id=>state.locations.find(x=>x.id===id);
+function esc(value=''){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+function displayName(item){return item.name || '未命名預留儲位 · '+item.id;}
+function locationPath(id){
+  if(id===null)return '未指定';
+  const names=[],seen=new Set();let x=locById(id);
+  while(x&&!seen.has(x.id)){names.unshift(displayName(x));seen.add(x.id);x=locById(x.parentId);}
+  return names.join(' › ') || '找不到儲位';
+}
+function pathOf(item){
+  if(item.type!=='item')return locationPath(item.id);
+  const stocks=state.stocks.filter(x=>x.partId===item.id);
+  return stocks.length?stocks.map(x=>locationPath(x.locationId)).join(' ／ '):'尚未設定存放位置';
+}
+function descendants(id){
+  const found=[],seen=new Set([id]),queue=[id];
+  while(queue.length){const parent=queue.shift();state.locations.filter(x=>x.parentId===parent).forEach(x=>{
+    if(!seen.has(x.id)){seen.add(x.id);found.push(x);queue.push(x.id);}
+  });}
+  return found;
+}
+function quantityText(stock){return stock.quantityState==='UNKNOWN'?'數量未知':String(stock.quantity);}
+function totalText(part){
+  const sum=WarehouseCore.summary(state,part.id);
+  if(!sum.locations)return '尚無庫存記錄';
+  return (sum.unknown ? '已知合計 ' : '合計 ')+sum.known+' '+part.unit+(sum.unknown?'，另有 '+sum.unknown+' 處數量未知':'');
+}
+function normalizeName(value=''){return String(value).normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('zh-Hant');}
+function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),4500);}
+function navHtml(){return nav.map(([id,icon,label])=>'<button class="nav-button '+(id==='add'?'add ':'')+(current===id?'active':'')+'" data-go="'+id+'"><span>'+icon+'</span><span>'+label+'</span></button>').join('');}
+function bindNavigation(){
+  $('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();
+  $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
+}
+function go(id){current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
+function row(item,subtitle){
+  return '<div class="item-row"><span class="type-icon '+item.type+'">'+typeIcon[item.type]+'</span><div class="row-body"><div class="row-title">'+esc(displayName(item))+'</div><div class="path">'+esc(subtitle||pathOf(item))+'</div>'+(item.type==='item'?'<small>'+esc(totalText(item))+'</small>':'<small>'+esc(item.status==='RESERVED'?'預留':'啟用')+'</small>')+'</div><button class="chevron" data-detail="'+esc(item.id)+'" aria-label="查看'+esc(displayName(item))+'">›</button></div>';
+}
+function bindDetails(){$$('[data-detail]').forEach(b=>b.onclick=()=>showDetail(b.dataset.detail));}
+function locationOptions(exclude=[],selected=''){
+  return '<option value="">未指定</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&!exclude.includes(x.id)).map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(locationPath(x.id))+'</option>').join('');
+}
+function renderHome(){
+  $('#homeView').innerHTML='<div class="hero"><p class="eyebrow">Warehouse overview</p><h1>今天要找什麼？</h1><p>掃描標籤，查看同一零件在各個位置的數量。</p><div class="stats"><div class="stat"><b>'+state.parts.length+'</b><span>零件種類</span></div><div class="stat"><b>'+state.locations.length+'</b><span>位置與容器</span></div><div class="stat"><b>'+state.stocks.length+'</b><span>分儲位庫存</span></div></div></div><div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>零件與儲位標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>照片、規格與初始儲位</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動位置</b><small>搬動容器或轉移庫存</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>查看各儲位內容</small></button></div><div class="section-head"><h2>最近項目</h2></div><div class="card">'+(items.slice(-5).reverse().map(x=>row(x)).join('')||'<div class="empty">連接雲端後查看資料，或開啟本機預覽。</div>')+'</div>';
+  bindNavigation();bindDetails();$('#homeScan').onclick=()=>openScanner(scanResult);
+}
+function scanResult(code){
+  const query=code.toLowerCase(),matches=items.filter(x=>x.id.toLowerCase()===query||x.barcode?.toLowerCase()===query);
+  if(matches.length===1)return showDetail(matches[0].id);
+  go('search');$('#query').value=code;$('#query').dispatchEvent(new Event('input'));
+  if(!matches.length)toast('找不到這個標籤');
+}
+function renderSearch(){
+  $('#searchView').innerHTML='<p class="eyebrow">Find items</p><h1 class="page-title">查詢物品</h1><div class="toolbar"><label class="searchbox"><span>⌕</span><input id="query" placeholder="名稱、編號、MPN、規格或位置"></label><button class="scan-button" id="searchScan">▦ 掃描</button></div><div class="pills">'+[['all','全部'],['item','零件'],['room','房間'],['cabinet','櫃子'],['box','箱子'],['RESERVED','預留']].map(([id,name])=>'<button class="pill '+(id==='all'?'active':'')+'" data-filter="'+id+'">'+name+'</button>').join('')+'</div><div class="card" id="results"></div>';
+  let filter='all';
+  const refresh=()=>{
+    const q=$('#query').value.trim().toLocaleLowerCase('zh-Hant');
+    const list=items.filter(x=>(filter==='all'||x.type===filter||x.status===filter)&&(!q||[displayName(x),x.id,x.barcode,x.manufacturer,x.mpn,x.specification,x.unit,x.note,pathOf(x)].some(v=>String(v||'').toLocaleLowerCase('zh-Hant').includes(q))));
+    $('#results').innerHTML=list.map(x=>row(x)).join('')||'<div class="empty">沒有符合項目</div>';bindDetails();
+  };
+  $('#query').oninput=refresh;$$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));refresh();});
+  $('#searchScan').onclick=()=>openScanner(scanResult);refresh();
+}
+function inputField(name,label,value='',type='text'){
+  return '<label><span class="label">'+label+'</span><input class="field" name="'+name+'" type="'+type+'" value="'+esc(value)+'"></label>';
+}
+function partFields(item={}){
+  return inputField('manufacturer','製造商',item.manufacturer)+inputField('mpn','製造商料號 MPN',item.mpn)+inputField('specification','規格',item.specification)+inputField('unit','單位',item.unit||'個')+inputField('barcode','條碼',item.barcode);
+}
+function readPart(form){
+  return Object.fromEntries(['name','manufacturer','mpn','specification','unit','barcode','note'].map(k=>[k,form.elements[k].value]));
+}
+async function submitForm(form,operation){
+  if(form.dataset.busy)return;
+  form.dataset.busy='1';form.querySelectorAll('button').forEach(x=>x.disabled=true);
+  try{await operation();}catch(error){toast(error.message);}
+  finally{delete form.dataset.busy;form.querySelectorAll('button').forEach(x=>x.disabled=false);}
+}
+function renderAdd(){
+  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="form-grid two">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+inputField('code','QR 編號（留空自動產生）')+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">數量狀態</span><select class="field" name="quantityState"><option value="KNOWN">已知</option><option value="UNKNOWN">未知</option></select></label><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" value="1"></label></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button><button type="button" class="secondary" id="scanAddCode">掃描編號</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
+  const form=$('#addForm');let photo='',photoBusy=false;
+  const update=()=>{
+    const isPart=form.elements.type.value==='item';
+    $$('.part-fields').forEach(x=>x.hidden=!isPart);$$('.location-fields').forEach(x=>x.hidden=isPart);
+    form.elements.name.required=isPart||form.elements.status.value==='ACTIVE';
+    form.elements.quantity.disabled=!isPart||form.elements.quantityState.value==='UNKNOWN';
+    form.elements.quantity.required=isPart&&form.elements.quantityState.value==='KNOWN';
+  };
+  form.elements.type.onchange=form.elements.status.onchange=form.elements.quantityState.onchange=update;update();
+  $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
+  $('#scanAddCode').onclick=()=>openScanner(code=>form.elements.code.value=code);
+  const handle=async event=>{
+    const file=event.target.files[0];if(!file)return;photoBusy=true;photo='';
+    form.querySelector('button.primary').disabled=true;
+    try{photo=await prepareWarehousePhoto(file);$('#photoBox').innerHTML='<img alt="照片預覽"><span>照片已準備</span>';$('#photoBox img').src=photo;}
+    catch(error){toast(error.message);$('#photoBox').innerHTML='<span>照片處理失敗，請重新選擇</span>';}
+    finally{photoBusy=false;form.querySelector('button.primary').disabled=false;event.target.value='';}
+  };
+  $('#photoCamera').onchange=$('#photoLibrary').onchange=handle;
+  form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
+    if(photoBusy)throw new Error('請等候照片處理完成');
+    const isPart=form.elements.type.value==='item',name=form.elements.name.value;
+    const same=items.filter(x=>normalizeName(x.name)===normalizeName(name)&&name.trim());
+    if(same.length&&!confirm('已有相同名稱的項目，仍要新增不同物品嗎？'))return;
+    const command=isPart?{action:'createPart',input:readPart(form),initialStock:{locationId:form.elements.locationId.value||null,quantityState:form.elements.quantityState.value,quantity:form.elements.quantityState.value==='UNKNOWN'?null:Number(form.elements.quantity.value)}}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
+    command.code=form.elements.code.value.trim();if(photo)command.photo=photo;
+    const result=await warehouseCloud.mutate(command);toast('已建立 '+result.result.id);showDetail(result.result.id);
+  });};
+}
+function renderLocations(){
+  const visited=new Set();
+  function tree(parent=null){
+    return state.locations.filter(x=>x.parentId===parent).map(loc=>{
+      if(visited.has(loc.id))return '';visited.add(loc.id);
+      const content=state.stocks.filter(s=>s.locationId===loc.id).map(s=>{const p=byId(s.partId);return p?row(p,quantityText(s)+' '+p.unit):'';}).join('');
+      return '<div><div class="tree-line"><span class="type-icon '+loc.type+'">'+typeIcon[loc.type]+'</span><button class="tree-name" data-detail="'+esc(loc.id)+'">'+esc(displayName(loc))+'</button><span>'+esc(loc.status==='RESERVED'?'預留':'')+'</span></div><div class="tree-children">'+content+tree(loc.id)+'</div></div>';
+    }).join('');
+  }
+  const unspecified=state.stocks.filter(s=>s.locationId===null).map(s=>{const p=byId(s.partId);return p?row(p,'未指定 · '+quantityText(s)+' '+p.unit):'';}).join('');
+  $('#locationsView').innerHTML='<p class="eyebrow">Location tree</p><h1 class="page-title">位置瀏覽</h1><div class="card tree-card">'+(tree()||'<div class="empty">尚無儲位</div>')+(unspecified?'<h3>未指定</h3>'+unspecified:'')+'</div>';
+  bindDetails();
+}
+function renderMove(){
+  $('#moveView').innerHTML='<p class="eyebrow">Relocate</p><h1 class="page-title">移動位置</h1><p class="page-sub">搬動容器不改數量；只搬一部分零件請用庫存轉移。</p><form class="card form-card" id="moveForm"><h2>搬動房間、櫃子或箱子</h2><label>要移動的容器<select class="field" name="id" required><option value="">請選擇</option>'+state.locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('')+'</select></label><label>新的上級位置<select class="field" name="parentId">'+locationOptions()+'</select></label><p id="movePreview"></p><button class="primary">確認移動容器</button></form><form class="card form-card top-sm" id="transferForm"><h2>轉移部分庫存</h2><p>先在物品詳情新增目標儲位庫存記錄。</p><label>來源<select class="field" name="from" required><option value="">請選擇</option>'+state.stocks.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('')+'</select></label><label>目的儲位<select class="field" name="to" required></select></label><label>數量<input class="field" name="amount" type="number" min="0.000001" max="1000000000000" step="0.000001" required></label>'+inputField('reason','原因')+'<button class="primary">確認轉移庫存</button></form>';
+  const move=$('#moveForm');
+  move.elements.id.onchange=()=>{
+    const x=locById(move.elements.id.value);if(!x)return;
+    move.elements.parentId.innerHTML=locationOptions([x.id,...descendants(x.id).map(d=>d.id)],x.parentId||'');
+    $('#movePreview').textContent='目前：'+locationPath(x.id)+'；移動後內容物數量不變';
+  };
+  move.onsubmit=event=>{event.preventDefault();submitForm(move,async()=>{
+    const x=locById(move.elements.id.value);if(!x)throw new Error('請先選擇容器');
+    await warehouseCloud.mutate({action:'moveLocation',id:x.id,parentId:move.elements.parentId.value||null,expectedVersion:x.version});toast('容器已移動');
+  });};
+  const transfer=$('#transferForm');
+  transfer.elements.from.onchange=()=>{
+    const from=state.stocks.find(x=>x.id===transfer.elements.from.value);
+    transfer.elements.to.innerHTML='<option value="">請選擇</option>'+state.stocks.filter(x=>x.partId===from?.partId&&x.id!==from?.id).map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.locationId)+' · '+quantityText(x))+'</option>').join('');
+  };
+  transfer.onsubmit=event=>{event.preventDefault();submitForm(transfer,async()=>{
+    const from=state.stocks.find(x=>x.id===transfer.elements.from.value),to=state.stocks.find(x=>x.id===transfer.elements.to.value);
+    if(!from||!to)throw new Error('請選擇來源及目的儲位');
+    await warehouseCloud.mutate({action:'transferStock',fromStockId:from.id,toStockId:to.id,expectedFromVersion:from.version,expectedToVersion:to.version,amount:Number(transfer.elements.amount.value),reason:transfer.elements.reason.value});toast('兩端庫存已一起更新');
+  });};
+}
+function showDetail(id){
+  const item=byId(id);if(!item)return;
+  const generation=++detailGeneration,d=$('#detailDialog'),isPart=item.type==='item';
+  if(d.open)d.close();
+  const stocks=state.stocks.filter(s=>isPart?s.partId===id:s.locationId===id);
+  const stockHTML=isPart?'<h3>分儲位庫存</h3>'+stocks.map(s=>'<div class="item-row"><div class="row-body"><b>'+esc(locationPath(s.locationId))+'</b><p>'+esc(quantityText(s)+' '+item.unit)+'</p><small>版次 '+s.version+'</small></div><button class="small-button" data-adjust="'+esc(s.id)+'">調整／紀錄</button></div>').join('')+'<button class="secondary" id="addStock">新增存放位置</button>':'<h3>此儲位的零件</h3>'+stocks.map(s=>{const p=byId(s.partId);return p?row(p,quantityText(s)+' '+p.unit):'';}).join('')+'<h3>子儲位</h3>'+state.locations.filter(x=>x.parentId===id).map(x=>row(x)).join('');
+  d.innerHTML='<div class="dialog-head"><h2>'+typeName[item.type]+'</h2><button class="close" data-close-detail>×</button></div><div class="dialog-body"><div class="detail-photo" id="detailPhoto"><span>'+typeIcon[item.type]+' 尚未加入照片</span></div><div class="crumbs">'+esc(pathOf(item))+'</div><h2>'+esc(displayName(item))+'</h2><span class="code">'+esc(item.id)+'</span><p>版次 '+item.version+' · '+esc(item.status==='RESERVED'?'預留':'啟用')+'</p>'+(isPart?'<p>'+esc(totalText(item))+'</p><dl>'+[['製造商',item.manufacturer],['MPN',item.mpn],['規格',item.specification],['單位',item.unit],['條碼',item.barcode]].map(([k,v])=>'<dt>'+k+'</dt><dd>'+esc(v||'未填')+'</dd>').join('')+'</dl>':'')+'<p class="literal-text">'+esc(item.note)+'</p>'+stockHTML+'<div class="detail-actions"><button class="secondary" id="editItem">修改資料</button><button class="secondary" id="showHistory">操作紀錄</button><button class="primary" data-close-detail>關閉</button></div><div id="entityHistory"></div></div>';
+  d.showModal();d.querySelectorAll('[data-close-detail]').forEach(b=>b.onclick=()=>d.close());
+  d.querySelector('#editItem').onclick=()=>openEditDialog(item);
+  d.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>showDetail(b.dataset.detail));
+  if(isPart){
+    d.querySelector('#addStock').onclick=()=>openStockDialog(item);
+    d.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>openQuantityDialog(item,state.stocks.find(s=>s.id===b.dataset.adjust)));
+  }
+  d.querySelector('#showHistory').onclick=async()=>{
+    try{const result=await warehouseCloud.request({action:'history',id});if(generation!==detailGeneration||!d.open)return;d.querySelector('#entityHistory').innerHTML=historyHTML(result.records);}
+    catch(error){toast(error.message);}
+  };
+  if(item.photoId)warehouseCloud.request({action:'photo',id}).then(result=>{
+    if(generation!==detailGeneration||!d.open||!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(result.photo))return;
+    const image=document.createElement('img');image.src=result.photo;image.alt=displayName(item);d.querySelector('#detailPhoto').replaceChildren(image);
+  }).catch(error=>toast(error.message));
+}
+const actionNames={createPart:'新增零件',createLocation:'新增儲位',updatePart:'修改零件',updateLocation:'修改儲位',moveLocation:'移動容器',createStock:'新增存放位置',adjustQuantity:'調整數量',transferStock:'轉移庫存'};
+function historyHTML(records){
+  return records.length?records.map(event=>'<div class="history-entry"><b>'+esc(actionNames[event.action]||event.action)+'</b><div>'+esc(event.reason||'未填原因')+'</div>'+event.changes.filter(c=>c.table==='stocks').map(c=>'<div>'+esc(c.before?quantityText(c.before):'未建立')+' → '+esc(quantityText(c.after))+'</div>').join('')+'<small>'+esc(new Date(event.time).toLocaleString('zh-TW'))+' · '+esc(event.actor||'共用金鑰')+'</small></div>').join(''):'<p>尚無操作紀錄</p>';
+}
+function openEditDialog(item){
+  const d=$('#editDialog'),isPart=item.type==='item';
+  d.innerHTML='<div class="dialog-head"><h2>修改資料</h2><button class="close" type="button">×</button></div><form class="dialog-body">'+inputField('name','名稱',item.name)+(isPart?partFields(item):'<label>種類<select class="field" name="type">'+['room','cabinet','box'].map(t=>'<option value="'+t+'" '+(item.type===t?'selected':'')+'>'+typeName[t]+'</option>').join('')+'</select></label><label>狀態<select class="field" name="status"><option value="ACTIVE" '+(item.status==='ACTIVE'?'selected':'')+'>啟用</option><option value="RESERVED" '+(item.status==='RESERVED'?'selected':'')+'>預留</option></select></label>')+'<label>備註<textarea class="field" name="note" maxlength="5000">'+esc(item.note)+'</textarea></label><p>編號固定：'+esc(item.id)+' · 讀取版次 '+item.version+'</p><button class="primary">儲存修改</button></form>';
+  d.showModal();const form=d.querySelector('form');
+  d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};
+  form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
+    const input=isPart?readPart(form):{name:form.elements.name.value,type:form.elements.type.value,status:form.elements.status.value,note:form.elements.note.value};
+    await warehouseCloud.mutate({action:isPart?'updatePart':'updateLocation',id:item.id,input,expectedVersion:item.version});
+    d.close();showDetail(item.id);toast('資料已更新');
+  });};
+}
+function openStockDialog(part){
+  const d=$('#editDialog'),used=state.stocks.filter(x=>x.partId===part.id).map(x=>x.locationId);
+  d.innerHTML='<div class="dialog-head"><h2>新增存放位置</h2><button class="close" type="button">×</button></div><form class="dialog-body"><label>儲位<select class="field" name="locationId">'+locationOptions(used.filter(x=>x!==null))+'</select></label><label>數量狀態<select class="field" name="quantityState"><option value="UNKNOWN">未知，稍後盤點</option><option value="KNOWN">已知</option></select></label><label>數量<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" value="0" disabled></label><button class="primary">建立庫存記錄</button></form>';
+  const form=d.querySelector('form');if(used.includes(null))form.elements.locationId.querySelector('option[value=""]').disabled=true;
+  form.elements.quantityState.onchange=()=>{form.elements.quantity.disabled=form.elements.quantityState.value==='UNKNOWN';form.elements.quantity.required=!form.elements.quantity.disabled;};
+  d.showModal();d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};
+  form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
+    if(used.includes(form.elements.locationId.value||null))throw new Error('該位置已有庫存記錄');
+    await warehouseCloud.mutate({action:'createStock',partId:part.id,locationId:form.elements.locationId.value||null,quantityState:form.elements.quantityState.value,quantity:form.elements.quantityState.value==='UNKNOWN'?null:Number(form.elements.quantity.value)});
+    d.close();showDetail(part.id);toast('已新增存放位置');
+  });};
+}
+function render(id){({home:renderHome,search:renderSearch,add:renderAdd,move:renderMove,locations:renderLocations}[id]||renderHome)();}
 function openScanner(callback){scanCallback=callback;$('#scannerDialog').showModal();$('#scanMessage').textContent='可啟動後鏡頭，或使用示範掃描'}async function stopCamera(){detecting=false;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#scannerVideo').srcObject=null}async function finishScan(code){const callback=scanCallback;await stopCamera();$('#scannerDialog').close();navigator.vibrate?.(80);callback?.(code);toast('掃描成功')}
-$('#scannerDialog [data-close]').onclick=()=>{stopCamera();$('#scannerDialog').close()};$('#cameraButton').onclick=async()=>{try{if(!navigator.mediaDevices?.getUserMedia)throw Error('此瀏覽器不支援相機');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('#scannerVideo').srcObject=stream;await $('#scannerVideo').play();$('#scanMessage').textContent='請將QR Code對準框內';if('BarcodeDetector'in window&&(await BarcodeDetector.getSupportedFormats()).includes('qr_code')){detector=new BarcodeDetector({formats:['qr_code']});detecting=true;detectLoop()}else $('#scanMessage').textContent='相機已開啟；此瀏覽器請使用手動輸入備援'}catch(e){$('#scanMessage').textContent=e.message||'無法啟動相機';toast('請檢查相機權限')}};async function detectLoop(){if(!detecting)return;try{const codes=await detector.detect($('#scannerVideo'));if(codes[0]?.rawValue)return finishScan(codes[0].rawValue)}catch(e){}requestAnimationFrame(detectLoop)}
-$('#demoScanButton').onclick=()=>finishScan(seed[Math.floor(Math.random()*seed.length)].code);$('#manualScanButton').onclick=()=>{const code=prompt('請輸入QR Code編號');if(code)finishScan(code.trim())};
+$('#scannerDialog [data-close]').onclick=()=>{stopCamera();$('#scannerDialog').close()};$('#cameraButton').onclick=async()=>{try{await stopCamera();if(!navigator.mediaDevices?.getUserMedia)throw Error('此瀏覽器不支援相機');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});if(!$('#scannerDialog').open){await stopCamera();return;}$('#scannerVideo').srcObject=stream;await $('#scannerVideo').play();$('#scanMessage').textContent='請將QR Code對準框內';if('BarcodeDetector'in window&&(await BarcodeDetector.getSupportedFormats()).includes('qr_code')){detector=new BarcodeDetector({formats:['qr_code']});detecting=true;detectLoop()}else $('#scanMessage').textContent='相機已開啟；此瀏覽器請使用手動輸入備援'}catch(e){$('#scanMessage').textContent=e.message||'無法啟動相機';toast('請檢查相機權限')}};async function detectLoop(){if(!detecting)return;try{const codes=await detector.detect($('#scannerVideo'));if(codes[0]?.rawValue)return finishScan(codes[0].rawValue)}catch(e){}requestAnimationFrame(detectLoop)}
+
+$('#scannerDialog').addEventListener('cancel',()=>stopCamera());
+$('#scannerDialog').addEventListener('close',()=>stopCamera());
+$('#demoScanButton').onclick=()=>{const item=items[0];item?finishScan(item.id):toast('請先載入資料');};
+$('#manualScanButton').onclick=()=>{const code=prompt('請輸入 QR 編號或條碼');if(code)finishScan(code.trim());};
+warehouseCloud.onState=next=>{
+  state=next;items=state.locations.map(x=>({...x})).concat(state.parts.map(x=>({...x,type:'item'})));
+  detailGeneration++;['detailDialog','editDialog','quantityDialog'].forEach(id=>{const d=$('#'+id);if(d.open)d.close();});
+  render(current);bindNavigation();
+};
+window.WarehouseUI={locationPath,pathOf,totalText,quantityText,descendants,scanResult};
 bindNavigation();renderHome();
-
-
-warehouseCloud.onItems=list=>{items=list;$('#detailDialog').close();render(current)};
