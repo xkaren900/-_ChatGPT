@@ -48,7 +48,7 @@ function locationOptions(exclude=[],selected=''){
 }
 function renderHome(){
   $('#homeView').innerHTML='<div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>零件與儲位標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>照片、規格與初始儲位</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動位置</b><small>搬動容器或轉移庫存</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>查看各儲位內容</small></button></div>';
-  bindNavigation();bindDetails();$('#homeScan').onclick=()=>openScanner(scanResult);
+  bindNavigation();bindDetails();$('#homeScan').onclick=()=>{go('search');openScanner(scanResult);};
 }
 function scanResult(code){
   const query=code.toLowerCase(),matches=items.filter(x=>x.id.toLowerCase()===query||x.barcode?.toLowerCase()===query);
