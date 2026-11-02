@@ -47,7 +47,7 @@ function locationOptions(exclude=[],selected=''){
   return '<option value="">未指定</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&!exclude.includes(x.id)).map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(locationPath(x.id))+'</option>').join('');
 }
 function renderHome(){
-  $('#homeView').innerHTML='<div class="hero"><p class="eyebrow">Warehouse overview</p><h1>今天要找什麼？</h1><p>掃描標籤，查看同一零件在各個位置的數量。</p><div class="stats"><div class="stat"><b>'+state.parts.length+'</b><span>零件種類</span></div><div class="stat"><b>'+state.locations.length+'</b><span>位置與容器</span></div><div class="stat"><b>'+state.stocks.length+'</b><span>分儲位庫存</span></div></div></div><div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>零件與儲位標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>照片、規格與初始儲位</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動位置</b><small>搬動容器或轉移庫存</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>查看各儲位內容</small></button></div><div class="section-head"><h2>最近項目</h2></div><div class="card">'+(items.slice(-5).reverse().map(x=>row(x)).join('')||'<div class="empty">連接雲端後查看資料，或開啟本機預覽。</div>')+'</div>';
+  $('#homeView').innerHTML='<div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>零件與儲位標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>照片、規格與初始儲位</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動位置</b><small>搬動容器或轉移庫存</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>查看各儲位內容</small></button></div>';
   bindNavigation();bindDetails();$('#homeScan').onclick=()=>openScanner(scanResult);
 }
 function scanResult(code){
@@ -89,7 +89,7 @@ async function submitForm(form,operation){
   finally{delete form.dataset.busy;form.querySelectorAll('button').forEach(x=>x.disabled=false);}
 }
 function renderAdd(){
-  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="form-grid two">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
+  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><div class="form-grid two top-sm">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
   const form=$('#addForm');let photo='',photoBusy=false;
   const update=()=>{
     const isPart=form.elements.type.value==='item';
@@ -101,6 +101,7 @@ function renderAdd(){
   form.elements.type.onchange=form.elements.status.onchange=update;update();
   $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
   $('#scanAddCode').onclick=()=>openScanner(code=>form.elements.code.value=code);
+  attachLocationScanner(form.elements.locationId,'掃描儲位 QR');
   const handle=async event=>{
     const file=event.target.files[0];if(!file)return;photoBusy=true;photo='';
     form.querySelector('button.primary').disabled=true;
@@ -133,13 +134,15 @@ function renderLocations(){
   bindDetails();
 }
 function renderMove(){
-  $('#moveView').innerHTML='<p class="eyebrow">Relocate</p><h1 class="page-title">移動位置</h1><p class="page-sub">搬動容器不改數量；只搬一部分零件請用庫存轉移。</p><form class="card form-card" id="moveForm"><h2>搬動房間、櫃子或箱子</h2><label>要移動的容器<select class="field" name="id" required><option value="">請選擇</option>'+state.locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('')+'</select></label><label>新的上級位置<select class="field" name="parentId">'+locationOptions()+'</select></label><p id="movePreview"></p><button class="primary">確認移動容器</button></form><form class="card form-card top-sm" id="transferForm"><h2>轉移部分庫存</h2><p>先在物品詳情新增目標儲位庫存記錄。</p><label>來源<select class="field" name="from" required><option value="">請選擇</option>'+state.stocks.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('')+'</select></label><label>目的儲位<select class="field" name="to" required></select></label><label>數量<input class="field" name="amount" type="number" min="0.000001" max="1000000000000" step="0.000001" required></label>'+inputField('reason','原因')+'<button class="primary">確認轉移庫存</button></form>';
+  $('#moveView').innerHTML='<p class="eyebrow">Relocate</p><h1 class="page-title">移動位置</h1><p class="page-sub">搬動容器不改數量；只搬一部分零件請用庫存轉移。</p><form class="card form-card" id="moveForm"><h2>搬動房間、櫃子或箱子</h2><label>要移動的容器<select class="field" name="id" required><option value="">請選擇</option>'+state.locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('')+'</select></label><label>新的上級位置<select class="field" name="parentId">'+locationOptions()+'</select></label><p id="movePreview"></p><button class="primary">確認移動容器</button></form><form class="card form-card top-sm" id="transferForm"><h2>轉移部分庫存</h2><p>選擇或掃描來源與目的儲位；目的庫存記錄會在轉移時一起建立。</p><label>來源<select class="field" name="from" required><option value="">請選擇</option>'+state.stocks.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('')+'</select></label><label>目的儲位<select class="field" name="to" required></select></label><label>數量<input class="field" name="amount" type="number" min="0.000001" max="1000000000000" step="0.000001" required></label>'+inputField('reason','原因')+'<button class="primary">確認轉移庫存</button></form>';
   const move=$('#moveForm');
   move.elements.id.onchange=()=>{
     const x=locById(move.elements.id.value);if(!x)return;
     move.elements.parentId.innerHTML=locationOptions([x.id,...descendants(x.id).map(d=>d.id)],x.parentId||'');
     $('#movePreview').textContent='目前：'+locationPath(x.id)+'；移動後內容物數量不變';
   };
+  attachLocationScanner(move.elements.id,'掃描容器 QR',()=>state.locations);
+  attachLocationScanner(move.elements.parentId,'掃描目的儲位 QR',()=>state.locations.filter(x=>x.status==='ACTIVE'));
   move.onsubmit=event=>{event.preventDefault();submitForm(move,async()=>{
     const x=locById(move.elements.id.value);if(!x)throw new Error('請先選擇容器');
     await warehouseCloud.mutate({action:'moveLocation',id:x.id,parentId:move.elements.parentId.value||null,expectedVersion:x.version});toast('容器已移動');
@@ -147,14 +150,50 @@ function renderMove(){
   const transfer=$('#transferForm');
   transfer.elements.from.onchange=()=>{
     const from=state.stocks.find(x=>x.id===transfer.elements.from.value);
-    transfer.elements.to.innerHTML='<option value="">請選擇</option>'+state.stocks.filter(x=>x.partId===from?.partId&&x.id!==from?.id).map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.locationId)+' · '+quantityText(x))+'</option>').join('');
+    transfer.elements.to.innerHTML='<option value="">請選擇</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&x.id!==from?.locationId).map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('');
+    if(from?.locationId!==null)transfer.elements.to.innerHTML+='<option value="__unassigned__">未指定</option>'; 
   };
+  attachStockSourceScanner(transfer);
+  attachLocationScanner(transfer.elements.to,'掃描目的儲位 QR');
   transfer.onsubmit=event=>{event.preventDefault();submitForm(transfer,async()=>{
-    const from=state.stocks.find(x=>x.id===transfer.elements.from.value),to=state.stocks.find(x=>x.id===transfer.elements.to.value);
-    if(!from||!to)throw new Error('請選擇來源及目的儲位');
-    await warehouseCloud.mutate({action:'transferStock',fromStockId:from.id,toStockId:to.id,expectedFromVersion:from.version,expectedToVersion:to.version,amount:Number(transfer.elements.amount.value),reason:transfer.elements.reason.value});toast('兩端庫存已一起更新');
+    const from=state.stocks.find(x=>x.id===transfer.elements.from.value),target=transfer.elements.to.value;
+    if(!from||!target)throw new Error('請選擇來源及目的儲位');
+    const toLocationId=target==='__unassigned__'?null:target,to=state.stocks.find(x=>x.partId===from.partId&&x.locationId===toLocationId);
+    await warehouseCloud.mutate({action:'transferStock',fromStockId:from.id,toLocationId,expectedFromVersion:from.version,expectedToVersion:to?to.version:null,amount:confirmedQuantity(transfer.elements.amount),reason:transfer.elements.reason.value});toast('兩端庫存已一起更新');
   });};
 }
+
+function attachLocationScanner(select,label,choices){
+ const button=document.createElement('button');button.type='button';button.className='secondary top-sm';button.textContent=label;select.after(button);
+ button.onclick=()=>openScanner(code=>{
+  const loc=state.locations.find(x=>x.id.toLowerCase()===code.trim().toLowerCase());
+  if(!loc)return toast('找不到這個儲位編號，請用選單或手動輸入');
+  if(choices&&!choices().some(x=>x.id===loc.id))return toast('這個儲位目前不可選取');
+  const option=Array.from(select.options).find(x=>x.value===loc.id&&!x.disabled);
+  if(!option)return toast('這個儲位不可選取；請先選擇來源，且不可放入自己或下層');
+  select.value=option.value;select.dispatchEvent(new Event('change'));toast('已選取 '+displayName(loc));
+ });
+}
+function attachStockSourceScanner(form){
+ const select=form.elements.from,scan=document.createElement('button'),all=document.createElement('button');
+ scan.type=all.type='button';scan.className=all.className='secondary top-sm';scan.textContent='掃描來源零件／儲位 QR';all.textContent='顯示全部來源';select.after(scan,all);
+ let partFilter=null,locationFilter;
+ const render=()=>{
+  const candidates=state.stocks.filter(s=>(!partFilter||s.partId===partFilter)&&(locationFilter===undefined||s.locationId===locationFilter));
+  select.innerHTML='<option value="">請選擇</option>'+candidates.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('');
+  select.value=candidates.length===1?candidates[0].id:'';select.dispatchEvent(new Event('change'));
+  toast(candidates.length===1?'已選取來源':candidates.length?'有多筆來源，請用選單選擇或繼續掃描':'沒有符合來源，請顯示全部後重新選擇');
+ };
+ all.onclick=()=>{partFilter=null;locationFilter=undefined;render();};
+ scan.onclick=()=>openScanner(code=>{
+  const key=code.trim().toLowerCase(),parts=state.parts.filter(p=>p.id.toLowerCase()===key||p.barcode?.toLowerCase()===key),loc=state.locations.find(l=>l.id.toLowerCase()===key);
+  if(parts.length===1)partFilter=parts[0].id;
+  else if(loc)locationFilter=loc.id;
+  else return toast(parts.length?'同條碼有多個零件，請從全部來源選擇':'找不到來源編號，請用選單或手動輸入');
+  render();
+ });
+}
+
 function showDetail(id){
   const item=byId(id);if(!item)return;
   const generation=++detailGeneration,d=$('#detailDialog'),isPart=item.type==='item';
@@ -197,6 +236,7 @@ function openStockDialog(part){
   const d=$('#editDialog'),used=state.stocks.filter(x=>x.partId===part.id).map(x=>x.locationId);
   d.innerHTML='<div class="dialog-head"><h2>新增存放位置</h2><button class="close" type="button">×</button></div><form class="dialog-body"><label>儲位<select class="field" name="locationId">'+locationOptions(used.filter(x=>x!==null))+'</select></label><label>數量<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001" required></label><small class="hint">請填入已確認的數量；0 代表確認沒有庫存，不能留空。</small><button class="primary">建立庫存記錄</button></form>';
   const form=d.querySelector('form');if(used.includes(null))form.elements.locationId.querySelector('option[value=""]').disabled=true;
+  attachLocationScanner(form.elements.locationId,'掃描儲位 QR');
   d.showModal();d.querySelector('.close').onclick=()=>{if(!form.dataset.busy)d.close();};d.oncancel=e=>{if(form.dataset.busy)e.preventDefault();};
   form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
     if(used.includes(form.elements.locationId.value||null))throw new Error('該位置已有庫存記錄');
@@ -205,7 +245,7 @@ function openStockDialog(part){
   });};
 }
 function render(id){({home:renderHome,search:renderSearch,add:renderAdd,move:renderMove,locations:renderLocations}[id]||renderHome)();}
-function openScanner(callback){scanCallback=callback;$('#scannerDialog').showModal();$('#scanMessage').textContent='可啟動後鏡頭，或使用示範掃描'}async function stopCamera(){detecting=false;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#scannerVideo').srcObject=null}async function finishScan(code){const callback=scanCallback;await stopCamera();$('#scannerDialog').close();navigator.vibrate?.(80);callback?.(code);toast('掃描成功')}
+function openScanner(callback){scanCallback=callback;$('#scannerDialog').showModal();$('#scanMessage').textContent='可啟動後鏡頭，或手動輸入編號'}async function stopCamera(){detecting=false;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('#scannerVideo').srcObject=null}async function finishScan(code){const callback=scanCallback;await stopCamera();$('#scannerDialog').close();navigator.vibrate?.(80);toast('已讀取標籤');callback?.(code)}
 $('#scannerDialog [data-close]').onclick=()=>{stopCamera();$('#scannerDialog').close()};$('#cameraButton').onclick=async()=>{try{await stopCamera();if(!navigator.mediaDevices?.getUserMedia)throw Error('此瀏覽器不支援相機');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});if(!$('#scannerDialog').open){await stopCamera();return;}$('#scannerVideo').srcObject=stream;await $('#scannerVideo').play();$('#scanMessage').textContent='請將QR Code對準框內';if('BarcodeDetector'in window&&(await BarcodeDetector.getSupportedFormats()).includes('qr_code')){detector=new BarcodeDetector({formats:['qr_code']});detecting=true;detectLoop()}else $('#scanMessage').textContent='相機已開啟；此瀏覽器請使用手動輸入備援'}catch(e){$('#scanMessage').textContent=e.message||'無法啟動相機';toast('請檢查相機權限')}};async function detectLoop(){if(!detecting)return;try{const codes=await detector.detect($('#scannerVideo'));if(codes[0]?.rawValue)return finishScan(codes[0].rawValue)}catch(e){}requestAnimationFrame(detectLoop)}
 
 $('#scannerDialog').addEventListener('cancel',()=>stopCamera());

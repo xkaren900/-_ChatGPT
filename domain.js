@@ -164,8 +164,20 @@ var WarehouseCore = (() => {
       }
       result = save('stocks', before, {...before, quantity: next, quantityState: nextState, updatedAt: time, version: before.version + 1});
     } else if (action === 'transferStock') {
-      const from = state.stocks.find(x => x.id === command.fromStockId), to = state.stocks.find(x => x.id === command.toStockId);
-      version(from, command.expectedFromVersion); version(to, command.expectedToVersion);
+      const from = state.stocks.find(x => x.id === command.fromStockId);
+      version(from, command.expectedFromVersion);
+      let to, creating = false;
+      if (own(command, 'toLocationId')) {
+        const targetId = parentId(command.toLocationId);
+        activeLocation(state, targetId);
+        to = state.stocks.find(x => x.id === stockKey(from.partId, targetId));
+        if (!to) {
+          if (command.expectedToVersion !== null) fail('目的庫存版本衝突，請重新載入');
+          creating = true;
+          to = {id:stockKey(from.partId,targetId),partId:from.partId,locationId:targetId,quantity:0,quantityState:'KNOWN',version:0};
+        }
+      } else to = state.stocks.find(x => x.id === command.toStockId);
+      if (!creating) version(to, command.expectedToVersion);
       if (from.id === to.id || from.partId !== to.partId) fail('轉移必須為同一零件的不同儲位');
       const part = state.parts.find(x => x.id === from.partId);
       if (!part || part.status !== 'ACTIVE') fail('零件不存在或已停用');
@@ -175,7 +187,7 @@ var WarehouseCore = (() => {
       text(command.reason, 500, '原因');
       const afterFrom = {...from, quantity: amount(Math.round((from.quantity - delta) * 1e6) / 1e6), version: from.version + 1, updatedAt: time};
       const afterTo = {...to, quantity: amount(Math.round((to.quantity + delta) * 1e6) / 1e6), version: to.version + 1, updatedAt: time};
-      save('stocks', from, afterFrom); save('stocks', to, afterTo);
+      save('stocks', from, afterFrom); save('stocks', creating ? null : to, afterTo);
       result = {from: afterFrom, to: afterTo};
     } else fail('不支援的操作');
     return {schema: SCHEMA, requestId: command.requestId, fingerprint: context.fingerprint,

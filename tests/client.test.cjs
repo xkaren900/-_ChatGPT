@@ -44,5 +44,6 @@ test('literal and multi-location UI helpers display partial totals and changed a
  const context=vm.createContext({console,window:{},document:{querySelector:get,querySelectorAll:()=>[]},warehouseCloud:{},setTimeout,clearTimeout,scrollTo(){},navigator:{},Event});
  vm.runInContext(fs.readFileSync(path.join(root,'domain.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'app.js'),'utf8'),context);
  context.warehouseCloud.onState({schema:4,parts:[{id:'ITM-A',name:'=1+1',unit:'顆',version:1}],locations:[{id:'LOC-A',name:'房間',type:'room',parentId:null,status:'ACTIVE'},{id:'BOX-A',name:'抽屜',type:'box',parentId:'LOC-A',status:'ACTIVE'}],stocks:[{id:'a',partId:'ITM-A',locationId:'BOX-A',quantity:0,quantityState:'KNOWN'},{id:'b',partId:'ITM-A',locationId:null,quantity:null,quantityState:'UNKNOWN'}]});
- assert.equal(context.window.WarehouseUI.locationPath('BOX-A'),'房間 › 抽屜');assert.equal(context.window.WarehouseUI.totalText({id:'ITM-A',unit:'顆'}),'已知合計 0 顆，另有 1 處數量未知');assert.match(elements.get('#homeView').innerHTML,/=1\+1/);
+ assert.equal(context.window.WarehouseUI.locationPath('BOX-A'),'房間 › 抽屜');assert.equal(context.window.WarehouseUI.totalText({id:'ITM-A',unit:'顆'}),'已知合計 0 顆，另有 1 處數量未知');assert.match(context.row({id:'ITM-A',name:'=1+1',type:'item',unit:'顆'}),/=1\+1/);
+ assert.doesNotMatch(elements.get('#homeView').innerHTML,/最近項目|Warehouse overview/);
 });
