@@ -251,7 +251,8 @@ $('#scannerDialog [data-close]').onclick=()=>{stopCamera();$('#scannerDialog').c
 $('#scannerDialog').addEventListener('cancel',()=>stopCamera());
 $('#scannerDialog').addEventListener('close',()=>stopCamera());
 $('#demoScanButton').onclick=()=>{const item=items[0];item?finishScan(item.id):toast('請先載入資料');};
-$('#manualScanButton').onclick=()=>{const code=prompt('請輸入 QR 編號或條碼');if(code)finishScan(code.trim());};
+$('#manualScanButton').onclick=()=>{const code=$('#manualScanCode').value.trim();if(code)finishScan(code);else toast('請先輸入編號');};
+$('#manualScanCode').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('#manualScanButton').click();}};
 warehouseCloud.onState=next=>{
   state=next;items=state.locations.map(x=>({...x})).concat(state.parts.map(x=>({...x,type:'item'})));
   detailGeneration++;['detailDialog','editDialog','quantityDialog'].forEach(id=>{const d=$('#'+id);if(d.open)d.close();});
