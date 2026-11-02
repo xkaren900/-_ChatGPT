@@ -66,7 +66,11 @@ function renderSearch(){
     $('#results').innerHTML=list.map(x=>row(x)).join('')||'<div class="empty">沒有符合項目</div>';bindDetails();
   };
   $('#query').oninput=()=>{ $('#queryStatus').textContent='查詢中…';refresh();};$$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));refresh();});
-  $('#searchScan').onclick=()=>openScanner(scanResult);refresh();
+  const searchButton=document.createElement('button');searchButton.type='button';searchButton.className='scan-button';searchButton.textContent='查詢';searchButton.id='searchSubmit';$('#searchScan').before(searchButton);
+  searchButton.onclick=refresh;$('#query').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();refresh();}};
+  $('#searchScan').onclick=()=>openScanner(scanResult);
+  $('#queryStatus').textContent='請輸入條件查詢；留空按「查詢」可列出全部';
+  $('#results').innerHTML='<div class="empty">尚未查詢</div>';
 }
 function inputField(name,label,value='',type='text'){
   return '<label><span class="label">'+label+'</span><input class="field" name="'+name+'" type="'+type+'" value="'+esc(value)+'"></label>';
