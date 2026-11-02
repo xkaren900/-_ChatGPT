@@ -16,3 +16,16 @@ test('test data, missing private location types and historic gaps require review
  const result=migrationPlan({github:{items:[{id:'ITM-A',name:'TEST-CODEX',type:'item',quantity:2}],history:[{requestId:'a',itemId:'ITM-A',before:3,after:2},{requestId:'b',itemId:'ITM-A',before:1,after:0}]},private:{locations:[{LocationID:'L-000001',LocationName:'櫃子'}]}});
  for(const code of ['TEST_DATA_REVIEW','LOCATION_TYPE_REQUIRED','HISTORY_GAP'])assert.ok(result.issues.some(x=>x.code===code));assert.equal(result.readyForReview,false);
 });
+test('migration preserves location dates and rejects unnormalized serial dates',()=>{
+ const createdAt='2026-01-01T16:40:30.074Z',updatedAt='2026-01-02T00:00:00.000Z';
+ const result=migrationPlan({github:{items:[{id:'BOX-A',type:'box',name:'箱子',createdAt,updatedAt}]}});
+ assert.equal(result.proposed.locations[0].createdAt,createdAt);assert.equal(result.proposed.locations[0].updatedAt,updatedAt);
+ assert.equal(result.readyForReview,true);
+ assert.ok(migrationPlan({github:{items:[{id:'BOX-A',type:'box',name:'箱子',createdAt:46000}]}}).issues.some(x=>x.code==='DATE_NORMALIZATION_REQUIRED'));
+});
+test('history arithmetic and orphan references block; explicit test retention stays visible',()=>{
+ const input={github:{items:[{id:'ITM-A',type:'item',name:'測試物品',quantity:5}],history:[{requestId:'legacy1',itemId:'ITM-A',operation:'decrease',amount:5,before:10,after:5}]},decisions:{retainTestIds:['ITM-A']}};
+ const result=migrationPlan(input);assert.equal(result.readyForReview,true);assert.equal(result.issues.find(x=>x.code==='TEST_DATA_REVIEW').blocking,false);
+ input.github.history[0].after=6;assert.ok(migrationPlan(input).issues.some(x=>x.code==='HISTORY_ARITHMETIC'));
+ input.github.history[0].itemId='MISSING';assert.ok(migrationPlan(input).issues.some(x=>x.code==='ORPHAN_HISTORY'));
+});
