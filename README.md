@@ -66,7 +66,11 @@ tools/migration.cjs 只讀取本機JSON匯出，不含Google API、不寫入目�
 
     node tools/migration.cjs exports/source.json
 
-格式示例見 docs/migration-input.example.json。需提供完整歷史，不可只匯出畫面最近50筆。回傳欄位對照、重號、同名、缺父節點、測試資料、未知數量、原歷史封存及來源雜湊。本分支沒有開放真正匯入工具，也沒有讀取使用者的正式資料。
+格式示例見 docs/migration-input.example.json。需提供完整歷史，不可只匯出畫面最近50筆。回傳欄位對照、重號、同名、缺父節點、測試資料、未知數量、原歷史封存及來源雜湊。
+
+tools/import-plan.cjs 將已確認的預演與選擇轉為確定性提交日誌及顯示副本；本工具不連線或寫入Google。先建立私人備份，再透過已授權流程寫入新增工作表，回讀逐格核對。實際匯出、選擇及日誌不得提交公開GitHub。
+
+對已完成匯入且仍保留舊表的工作簿，不要執行setupMergedWarehouse；改執行唯讀的verifyMergedWarehouse核對欄位、重播結果與金鑰是否已設定。部署專案可定義MERGED_DEPLOYMENT_CONFIG，提供spreadsheetId、folderId、writeEnabled；指令碼屬性的同名設定優先，其中MERGED_WRITE_ENABLED=false始終禁止寫入。不要在設定物件保存金鑰。
 
 ## 驗證與剩餘工作
 

@@ -8,12 +8,14 @@ const MERGED_HEADERS = {
 };
 function mergedConfig_() {
   const props = PropertiesService.getScriptProperties();
-  const spreadsheetId = props.getProperty('MERGED_SPREADSHEET_ID');
+  const deployment = typeof MERGED_DEPLOYMENT_CONFIG === 'undefined' ? {} : MERGED_DEPLOYMENT_CONFIG;
+  const spreadsheetId = props.getProperty('MERGED_SPREADSHEET_ID') || deployment.spreadsheetId;
   if (!spreadsheetId) throw new Error('尚未設定合併版資料庫');
-  return {props, spreadsheetId, folderId: props.getProperty('MERGED_PHOTO_FOLDER_ID') || ''};
+  return {props, spreadsheetId, folderId: props.getProperty('MERGED_PHOTO_FOLDER_ID') || deployment.folderId || '', deployment};
 }
 function mergedEnabled_(config) {
-  if (config.props.getProperty('MERGED_WRITE_ENABLED') !== 'true') throw new Error('此資料庫目前禁止寫入');
+  const setting = config.props.getProperty('MERGED_WRITE_ENABLED');
+  if (setting !== 'true' && !(setting === null && config.deployment && config.deployment.writeEnabled === true)) throw new Error('此資料庫目前禁止寫入');
 }
 function setupMergedWarehouse() {
   const config = mergedConfig_(); mergedEnabled_(config);
@@ -195,3 +197,10 @@ function rebuildMergedProjections() {
   } finally { lock.releaseLock(); }
 }
 function mergedJSON_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
+function verifyMergedWarehouse() {
+  const config = mergedConfig_(), book = SpreadsheetApp.openById(config.spreadsheetId);
+  Object.keys(MERGED_HEADERS).forEach(name => mergedSheet_(book,name));
+  const events = mergedEvents_(book), state = WarehouseCore.replay(events);
+  const token = config.props.getProperty('WAREHOUSE_TOKEN') || '';
+  console.log(JSON.stringify({ok:true,schema:4,events:events.length,parts:state.parts.length,locations:state.locations.length,stocks:state.stocks.length,quantities:state.stocks.map(s=>s.quantity),tokenConfigured:token.length>=24}));
+}
