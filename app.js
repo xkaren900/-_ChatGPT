@@ -44,7 +44,7 @@ function row(item,subtitle){
 }
 function bindDetails(){$$('[data-detail]').forEach(b=>b.onclick=()=>showDetail(b.dataset.detail));}
 function locationOptions(exclude=[],selected=''){
-  return '<option value="">未指定</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&!exclude.includes(x.id)).map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(locationPath(x.id))+'</option>').join('');
+  return '<option value="">未指定</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&!exclude.includes(x.id)).map(x=>'<option value="'+esc(x.id)+'" '+(x.id===selected?'selected':'')+'>'+esc(locationPath(x.id)+' · '+x.id)+'</option>').join('');
 }
 function renderHome(){
   $('#homeView').innerHTML='<div class="section-head"><h2>快速操作</h2></div><div class="quick-grid"><button class="quick" id="homeScan"><span class="icon">▦</span><b>掃描查詢</b><small>零件與儲位標籤</small></button><button class="quick" data-go="add"><span class="icon">＋</span><b>建立物品</b><small>照片、規格與初始儲位</small></button><button class="quick" data-go="move"><span class="icon">↪</span><b>移動位置</b><small>搬動容器或轉移庫存</small></button><button class="quick" data-go="locations"><span class="icon">☷</span><b>瀏覽位置</b><small>查看各儲位內容</small></button></div>';
@@ -97,6 +97,13 @@ async function submitForm(form,operation){
   try{await operation();}catch(error){toast(error.message);}
   finally{delete form.dataset.busy;form.removeAttribute('aria-busy');if(submit)submit.textContent=oldText;progress.textContent='';form.querySelectorAll('button').forEach(x=>x.disabled=false);}
 }
+
+function confirmDuplicateName(matches){
+ const d=$('#duplicateDialog');
+ d.innerHTML='<div class="dialog-head"><h2>已有同名項目</h2></div><div class="dialog-body"><p>名稱可以重複，每一個盒子或物品以獨立 QR 編號區分。請確認這是另一個盒子或物品。</p><div class="duplicate-list">'+matches.map(x=>'<div class="duplicate-item"><div><b>'+esc(displayName(x))+'</b><span>'+esc(pathOf(x))+'</span><code>'+esc(x.id)+'</code></div></div>').join('')+'</div><div class="detail-actions"><button type="button" class="secondary" data-duplicate-cancel>返回檢查</button><button type="button" class="primary" data-duplicate-continue>仍要新增另一個</button></div></div>';
+ return new Promise(resolve=>{let done=false;const finish=answer=>{if(done)return;done=true;d.close();resolve(answer);};d.querySelector('[data-duplicate-cancel]').onclick=()=>finish(false);d.querySelector('[data-duplicate-continue]').onclick=()=>finish(true);d.oncancel=e=>{e.preventDefault();finish(false);};d.onclose=()=>finish(false);d.showModal();});
+}
+
 function renderAdd(){
   $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><div class="form-grid two top-sm">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001"></label><small class="hint">留空僅建立零件，不建立庫存；之後可在明細新增儲位與數量。填0代表已確認沒有庫存。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
   const form=$('#addForm');let photo='',photoBusy=false;
@@ -123,7 +130,7 @@ function renderAdd(){
     if(photoBusy)throw new Error('請等候照片處理完成');
     const isPart=form.elements.type.value==='item',name=form.elements.name.value;
     const same=items.filter(x=>normalizeName(x.name)===normalizeName(name)&&name.trim());
-    if(same.length&&!confirm('已有相同名稱的項目，仍要新增不同物品嗎？'))return;
+    if(same.length&&!await confirmDuplicateName(same))return;
     const command=isPart?{action:'createPart',input:readPart(form)}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
     if(isPart&&form.elements.quantity.value.trim()!=='')command.initialStock={locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)};
     command.code=form.elements.code.value.trim();if(photo)command.photo=photo;
@@ -144,7 +151,7 @@ function renderLocations(){
   bindDetails();
 }
 function renderMove(){
-  $('#moveView').innerHTML='<p class="eyebrow">Relocate</p><h1 class="page-title">移動位置</h1><p class="page-sub">搬動容器不改數量；只搬一部分零件請用庫存轉移。</p><form class="card form-card" id="moveForm"><h2>搬動房間、櫃子或箱子</h2><label>要移動的容器<select class="field" name="id" required><option value="">請選擇</option>'+state.locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('')+'</select></label><label>新的上級位置<select class="field" name="parentId">'+locationOptions()+'</select></label><p id="movePreview"></p><button class="primary">確認移動容器</button></form><form class="card form-card top-sm" id="transferForm"><h2>轉移部分庫存</h2><p>選擇或掃描來源與目的儲位；目的庫存記錄會在轉移時一起建立。</p><label>來源<select class="field" name="from" required><option value="">請選擇</option>'+state.stocks.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('')+'</select></label><label>目的儲位<select class="field" name="to" required></select></label><label>數量<input class="field" name="amount" type="number" min="0.000001" max="1000000000000" step="0.000001" required></label>'+inputField('reason','原因')+'<button class="primary">確認轉移庫存</button></form>';
+  $('#moveView').innerHTML='<p class="eyebrow">Relocate</p><h1 class="page-title">移動位置</h1><p class="page-sub">搬動容器不改數量；只搬一部分零件請用庫存轉移。</p><form class="card form-card" id="moveForm"><h2>搬動房間、櫃子或箱子</h2><label>要移動的容器<select class="field" name="id" required><option value="">請選擇</option>'+state.locations.map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id)+' · '+x.id)+'</option>').join('')+'</select></label><label>新的上級位置<select class="field" name="parentId">'+locationOptions()+'</select></label><p id="movePreview"></p><button class="primary">確認移動容器</button></form><form class="card form-card top-sm" id="transferForm"><h2>搬移部分數量</h2><p>選擇或掃描來源與目的儲位；目的庫存記錄會在轉移時一起建立。</p><label>從哪裡搬<select class="field" name="from" required><option value="">請選擇</option>'+state.stocks.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' ['+(s.locationId||'未指定')+'] · '+quantityText(s))+'</option>').join('')+'</select></label><label>搬到哪裡<select class="field" name="to" required></select></label><label>搬多少<input class="field" name="amount" type="number" min="0.000001" max="1000000000000" step="0.000001" required></label>'+inputField('reason','原因')+'<button class="primary">確認搬移數量</button></form>';
   const move=$('#moveForm');
   move.elements.id.onchange=()=>{
     const x=locById(move.elements.id.value);if(!x)return;
@@ -160,7 +167,7 @@ function renderMove(){
   const transfer=$('#transferForm');
   transfer.elements.from.onchange=()=>{
     const from=state.stocks.find(x=>x.id===transfer.elements.from.value);
-    transfer.elements.to.innerHTML='<option value="">請選擇</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&x.id!==from?.locationId).map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id))+'</option>').join('');
+    transfer.elements.to.innerHTML='<option value="">請選擇</option>'+state.locations.filter(x=>x.status==='ACTIVE'&&x.id!==from?.locationId).map(x=>'<option value="'+esc(x.id)+'">'+esc(locationPath(x.id)+' · '+x.id)+'</option>').join('');
     if(from?.locationId!==null)transfer.elements.to.innerHTML+='<option value="__unassigned__">未指定</option>'; 
   };
   attachStockSourceScanner(transfer);
@@ -186,11 +193,11 @@ function attachLocationScanner(select,label,choices){
 }
 function attachStockSourceScanner(form){
  const select=form.elements.from,scan=document.createElement('button'),all=document.createElement('button');
- scan.type=all.type='button';scan.className=all.className='secondary top-sm';scan.textContent='掃描來源零件／儲位 QR';all.textContent='顯示全部來源';select.after(scan,all);
+ scan.type=all.type='button';scan.className=all.className='secondary top-sm';scan.textContent='掃描來源零件／儲位 QR';all.textContent='清除篩選，重新選擇';select.after(scan,all);
  let partFilter=null,locationFilter;
  const render=()=>{
   const candidates=state.stocks.filter(s=>(!partFilter||s.partId===partFilter)&&(locationFilter===undefined||s.locationId===locationFilter));
-  select.innerHTML='<option value="">請選擇</option>'+candidates.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' · '+quantityText(s))+'</option>').join('');
+  select.innerHTML='<option value="">請選擇</option>'+candidates.map(s=>'<option value="'+esc(s.id)+'">'+esc((partById(s.partId)?.name||s.partId)+' · '+locationPath(s.locationId)+' ['+(s.locationId||'未指定')+'] · '+quantityText(s))+'</option>').join('');
   select.value=candidates.length===1?candidates[0].id:'';select.dispatchEvent(new Event('change'));
   toast(candidates.length===1?'已選取來源':candidates.length?'有多筆來源，請用選單選擇或繼續掃描':'沒有符合來源，請顯示全部後重新選擇');
  };
