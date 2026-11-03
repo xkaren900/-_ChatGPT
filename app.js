@@ -2,7 +2,7 @@
 const typeName={room:'房間',cabinet:'櫃子',box:'箱子',item:'一般物品'};
 const typeIcon={room:'⌂',cabinet:'▥',box:'▣',item:'◆'};
 const nav=[['home','⌂','首頁'],['search','⌕','查詢'],['add','＋','新增'],['move','↪','移動'],['locations','☷','位置']];
-let archivedStocks=[],state=WarehouseCore.empty(),items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false,detailGeneration=0;
+let addMode=null,addDrafts={},archivedStocks=[],state=WarehouseCore.empty(),items=[],current='home',scanCallback=null,stream=null,detector=null,detecting=false,detailGeneration=0;
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
 const byId=id=>items.find(x=>x.id===id), partById=id=>state.parts.find(x=>x.id===id), locById=id=>state.locations.find(x=>x.id===id);
 function esc(value=''){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
@@ -38,7 +38,7 @@ function bindNavigation(){
   $('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();
   $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
 }
-function go(id){const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
+function go(id){if(id==='add')addMode=null;const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
 function row(item,subtitle){
   return '<div class="item-row"><span class="type-icon '+item.type+'">'+typeIcon[item.type]+'</span><div class="row-body"><div class="row-title">'+esc(displayName(item))+'</div><div class="path">'+esc(subtitle||pathOf(item))+'</div>'+(item.type==='item'?'<small>'+esc(totalText(item))+'</small>':'<small>'+esc(item.status==='RESERVED'?'預留':'啟用')+'</small>')+'</div><button class="chevron" data-detail="'+esc(item.id)+'" aria-label="查看'+esc(displayName(item))+'">›</button></div>';
 }
@@ -89,7 +89,7 @@ function readPart(form){
 }
 async function submitForm(form,operation){
   if(form.dataset.busy)return;
-  const submit=form.querySelector('button.primary'),oldText=submit?.textContent;
+  const submit=form.querySelector('button[type="submit"]')||form.querySelector('button.primary'),oldText=submit?.textContent;
   form.dataset.busy='1';form.setAttribute('aria-busy','true');form.querySelectorAll('button').forEach(x=>x.disabled=true);
   const message=oldText?.includes('建立')?'新增中…':oldText?.includes('查詢')?'查詢中…':'儲存中…';
   if(submit)submit.textContent=message;
@@ -104,39 +104,126 @@ function confirmDuplicateName(matches){
  return new Promise(resolve=>{let done=false;const finish=answer=>{if(done)return;done=true;d.close();resolve(answer);};d.querySelector('[data-duplicate-cancel]').onclick=()=>finish(false);d.querySelector('[data-duplicate-continue]').onclick=()=>finish(true);d.oncancel=e=>{e.preventDefault();finish(false);};d.onclose=()=>finish(false);d.showModal();});
 }
 
-function renderAdd(){
-  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">建立物品</h1><form class="card form-card" id="addForm"><div class="photo" id="photoBox"><span>尚未加入照片</span></div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><div class="form-grid two top-sm">'+inputField('name','名稱')+'<label><span class="label">種類</span><select class="field" name="type"><option value="item">一般物品</option><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子</option></select></label>'+'<label><span class="label">QR 編號（留空自動產生）</span><div class="field-pair"><input class="field" name="code" type="text"><button type="button" class="small-button" id="scanAddCode">掃描既有標籤</button></div><small class="hint">已有標籤可掃描或手動輸入編號；新標籤留空即可自動產生。</small></label>'+'<label><span class="label">上級／初始儲位</span><select class="field" name="locationId">'+locationOptions()+'</select></label><div class="part-fields">'+partFields()+'</div><div class="part-fields"><label><span class="label">初始數量</span><input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001"></label><small class="hint">留空僅建立零件，不建立庫存；之後可在明細新增儲位與數量。填0代表已確認沒有庫存。</small></div><label class="location-fields" hidden><span class="label">儲位狀態</span><select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可未命名）</option></select></label></div><label><span class="label">備註</span><textarea class="field" name="note" maxlength="5000"></textarea></label><button class="primary">建立</button></form>';
-  const form=$('#addForm');let photo='',photoBusy=false;
-  const update=()=>{
-    const isPart=form.elements.type.value==='item';
-    $$('.part-fields').forEach(x=>x.hidden=!isPart);$$('.location-fields').forEach(x=>x.hidden=isPart);
-    form.elements.name.required=isPart||form.elements.status.value==='ACTIVE';
-    form.elements.quantity.disabled=!isPart;
-    form.elements.quantity.required=false;
-  };
-  form.elements.type.onchange=form.elements.status.onchange=update;update();
-  $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
-  $('#scanAddCode').onclick=()=>openScanner(code=>form.elements.code.value=code);
-  attachLocationScanner(form.elements.locationId,'掃描儲位 QR');
-  const handle=async event=>{
-    const file=event.target.files[0];if(!file)return;photoBusy=true;photo='';
-    form.querySelector('button.primary').disabled=true;
-    try{photo=await prepareWarehousePhoto(file);$('#photoBox').innerHTML='<img alt="照片預覽"><span>照片已準備</span>';$('#photoBox img').src=photo;}
-    catch(error){toast(error.message);$('#photoBox').innerHTML='<span>照片處理失敗，請重新選擇</span>';}
-    finally{photoBusy=false;form.querySelector('button.primary').disabled=false;event.target.value='';}
-  };
-  $('#photoCamera').onchange=$('#photoLibrary').onchange=handle;
-  form.onsubmit=event=>{event.preventDefault();submitForm(form,async()=>{
-    if(photoBusy)throw new Error('請等候照片處理完成');
-    const isPart=form.elements.type.value==='item',name=form.elements.name.value;
-    const same=items.filter(x=>normalizeName(x.name)===normalizeName(name)&&name.trim());
-    if(same.length&&!await confirmDuplicateName(same))return;
-    const command=isPart?{action:'createPart',input:readPart(form)}:{action:'createLocation',input:{name,type:form.elements.type.value,status:form.elements.status.value,parentId:form.elements.locationId.value||null,note:form.elements.note.value}};
-    if(isPart&&form.elements.quantity.value.trim()!=='')command.initialStock={locationId:form.elements.locationId.value||null,quantityState:'KNOWN',quantity:confirmedQuantity(form.elements.quantity)};
-    command.code=form.elements.code.value.trim();if(photo)command.photo=photo;
-    const result=await warehouseCloud.mutate(command);toast('已建立 '+result.result.id);showDetail(result.result.id);
-  });};
+function buildAddCommand(mode,values,photo=''){
+  const name=String(values.name||''),code=String(values.code||'').trim();
+  if(code&&!/^[\w-]{1,100}$/.test(code))throw Error('QR 編號只接受英文、數字、底線及連字號，最多100字');
+  let command;
+  if(mode==='item'){
+    if(!name.trim())throw Error('請輸入物品名稱');
+    const input={name,unit:values.unit||'個'};
+    for(const key of ['manufacturer','mpn','specification','barcode','note'])input[key]=values[key]||'';
+    command={action:'createPart',input};
+    if(String(values.quantity??'').trim()!=='')command.initialStock={locationId:values.locationId||null,quantityState:'KNOWN',quantity:WarehouseCore.amount(Number(values.quantity))};
+  }else{
+    const status=values.status||'ACTIVE',type=values.type||'box';
+    if(!['ACTIVE','RESERVED'].includes(status)||!['room','cabinet','box'].includes(type))throw Error('請選擇有效的儲位種類與狀態');
+    if(status==='ACTIVE'&&!name.trim())throw Error('請輸入儲位名稱，或選擇預留');
+    command={action:'createLocation',input:{name,type,status,parentId:values.locationId||null,note:values.note||''}};
+  }
+  command.code=code;if(photo)command.photo=photo;return command;
 }
+function renderAdd(){
+  if(addMode){renderAddWizard(addMode);return;}
+  $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">新增</h1><p class="page-sub">要建立什麼？選擇後依步驟填寫，最後確認才會儲存。</p><div class="creation-choices"><button class="quick" data-create-mode="item"><span class="icon">◆</span><b>物品</b><small>零件、耗材與其他物品</small>'+(addDrafts.item?'<span class="hint">繼續未完成的草稿</span>':'')+'</button><button class="quick" data-create-mode="location"><span class="icon">▣</span><b>儲位</b><small>房間、櫃子或零件盒</small>'+(addDrafts.location?'<span class="hint">繼續未完成的草稿</span>':'')+'</button></div>';
+  $$('[data-create-mode]').forEach(button=>button.onclick=()=>{addMode=button.dataset.createMode;renderAddWizard(addMode);});
+}
+function renderAddWizard(mode){
+  const isPart=mode==='item',draft=addDrafts[mode]||(addDrafts[mode]={values:{name:'',code:'',quantity:'',unit:'個',manufacturer:'',mpn:'',specification:'',barcode:'',note:'',locationId:'',type:'box',status:'ACTIVE'},step:0,photo:'',photoBusy:false,photoError:''});
+  const titles=isPart?['拍照','掃描 QR','物品名稱','數量與單位','其他資訊','存放儲位','確認完成']:['拍照','掃描 QR','名稱與種類','上級儲位','備註','確認完成'];
+  const photoHTML='<div class="photo" id="photoBox">'+(draft.photo?'<img alt="照片預覽">':'<span>'+esc(draft.photoBusy?'正在處理照片…':draft.photoError||'尚未加入照片')+'</span>')+'</div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button><button type="button" class="secondary" id="removeDraftPhoto">移除照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><p class="hint">選填。沒有照片可直接下一步，之後也可返回補上。</p>';
+  const qrHTML=inputField('code',(isPart?'物品':'儲位')+' QR 編號（可略過）')+'<button type="button" class="secondary top-sm" id="scanAddCode">掃描既有 QR 標籤</button><p class="hint">未貼標籤可留空，完成時自動產生唯一編號；也可手動輸入。這不是存放儲位的 QR。</p>';
+  const nameHTML=inputField('name',isPart?'物品名稱（必填）':'儲位名稱')+(isPart?'':'<label>儲位種類<select class="field" name="type"><option value="room">房間</option><option value="cabinet">櫃子</option><option value="box">箱子／零件盒</option></select></label><label>儲位狀態<select class="field" name="status"><option value="ACTIVE">啟用</option><option value="RESERVED">預留（可稍後命名）</option></select></label>')+'<p class="hint">名稱可以重複，系統以 QR 編號區分每一個'+(isPart?'物品':'儲位')+'。</p>';
+  const quantityHTML='<label>數量（可留空）<input class="field" name="quantity" type="number" min="0" max="1000000000000" step="0.000001"></label>'+inputField('unit','單位','個')+'<p class="hint">單位預設「個」。數量留空只建立物品，之後再建立儲位與庫存；填0代表已確認沒有庫存。</p>';
+  const noteHTML='<label>備註（選填）<textarea class="field" name="note" maxlength="5000"></textarea></label>';
+  const otherHTML=inputField('manufacturer','製造商（選填）')+inputField('mpn','製造商料號 MPN（選填）')+inputField('specification','規格（選填）')+inputField('barcode','商品／原廠條碼（選填）')+noteHTML;
+  const locationHTML='<label>'+(isPart?'存放儲位':'上級儲位')+'（可略過）<select class="field" name="locationId">'+locationOptions()+'</select></label><p id="wizardLocationHint" class="hint"></p>'+(isPart?'<button type="button" class="secondary" id="backToQuantity">返回填寫數量</button>':'');
+  const panels=isPart?[photoHTML,qrHTML,nameHTML,quantityHTML,otherHTML,locationHTML,'<div id="wizardSummary"></div>']:[photoHTML,qrHTML,nameHTML,locationHTML,noteHTML,'<div id="wizardSummary"></div>'];
+  $('#addView').innerHTML='<p class="eyebrow">New '+(isPart?'item':'location')+'</p><h1 class="page-title">新增'+(isPart?'物品':'儲位')+'</h1><button type="button" class="link-button" id="changeCreateMode">返回物品／儲位選擇（保留草稿）</button><form class="card form-card creation-wizard" id="addForm" novalidate><p id="wizardProgress" role="status"></p><progress id="wizardProgressBar" max="'+titles.length+'" value="1"></progress><h2 id="wizardTitle" tabindex="-1"></h2>'+panels.map((html,i)=>'<section class="creation-step stack" data-step="'+i+'" hidden>'+html+'</section>').join('')+'<p id="wizardError" role="alert"></p><div class="wizard-actions"><button type="button" class="secondary" id="wizardPrevious">上一步</button><button type="button" class="secondary" id="wizardNext">下一步</button><button type="submit" class="primary" id="wizardFinish" hidden>完成建立</button></div></form>';
+  const form=$('#addForm'),steps=Array.from(form.querySelectorAll('[data-step]')),last=titles.length-1,locationStep=isPart?5:3;
+  for(const [key,value] of Object.entries(draft.values)){const field=form.elements.namedItem(key);if(field)field.value=value;}
+  if(draft.photo)$('#photoBox img').src=draft.photo;
+  const save=()=>{for(const field of form.elements)if(field.name&&field.type!=='file')draft.values[field.name]=field.value;};
+  const error=message=>{$('#wizardError').textContent=message;};
+  function validate(index){
+    save();const values=draft.values;
+    if(draft.photoBusy){error('照片仍在處理中，請稍候');return false;}
+    if(index===1&&values.code.trim()){
+      const code=values.code.trim();
+      if(!/^[\w-]{1,100}$/.test(code)){error('QR 編號只接受英文、數字、底線及連字號，最多100字');return false;}
+      if(items.some(item=>item.id.toLowerCase()===code.toLowerCase())){error('這個 QR 編號已使用。請改用另一張標籤，或留空自動產生');return false;}
+    }
+    if(index===2&&(isPart||values.status==='ACTIVE')&&!values.name.trim()){error('請輸入'+(isPart?'物品':'儲位')+'名稱');form.elements.name.focus();return false;}
+    if(index===2&&values.name.length>200){error('名稱不得超過200字');return false;}
+    if(isPart&&index===3){
+      if(form.elements.quantity.validity.badInput){error('請輸入有效數量，或清空欄位略過');return false;}
+      if(values.quantity.trim())try{WarehouseCore.amount(Number(values.quantity));}catch(e){error(e.message);return false;}
+      if(!values.unit.trim()){values.unit='個';form.elements.unit.value='個';}
+      if(values.unit.length>30){error('單位不得超過30字');return false;}
+    }
+    const limits={manufacturer:200,mpn:200,specification:1000,barcode:200,note:5000};
+    if((isPart&&index===4)||(!isPart&&index===4))for(const [key,limit] of Object.entries(limits))if(String(values[key]||'').length>limit){error('資訊長度超過限制，請縮短內容');return false;}
+    if(index===locationStep&&(!isPart||values.quantity.trim())&&values.locationId&&!state.locations.some(x=>x.id===values.locationId&&x.status==='ACTIVE')){error('這個儲位目前不可使用，請重新選擇');return false;}
+    error('');return true;
+  }
+  function summary(){
+    save();const values=draft.values,hasQuantity=isPart&&values.quantity.trim()!=='';
+    const details=[['QR 編號',values.code.trim()||'完成時自動產生'],['名稱',values.name||'未命名預留儲位']];
+    if(isPart)details.push(['數量',hasQuantity?values.quantity+' '+(values.unit||'個'):'未填；本次只建立物品'],['存放儲位',hasQuantity?locationPath(values.locationId||null):'稍後設定']);
+    else details.push(['種類',typeName[values.type]],['狀態',values.status==='RESERVED'?'預留':'啟用'],['上級儲位',locationPath(values.locationId||null)]);
+    for(const [key,label] of Object.entries({manufacturer:'製造商',mpn:'MPN',specification:'規格',barcode:'原廠條碼',note:'備註'}))if((isPart||key==='note')&&values[key])details.push([label,values[key]]);
+    $('#wizardSummary').innerHTML='<p>請確認以下內容；按「完成建立」後才會儲存。</p><dl class="creation-summary">'+details.map(([label,value])=>'<dt>'+esc(label)+'</dt><dd>'+esc(value)+'</dd>').join('')+'</dl><p>照片：'+(draft.photo?'已加入':'未加入')+'</p>';
+  }
+  function paint(focus=false){
+    const index=draft.step=Math.min(Math.max(draft.step,0),last),noStock=isPart&&!form.elements.quantity.value.trim();
+    steps.forEach((panel,i)=>{panel.hidden=i!==index;});
+    $('#wizardProgress').textContent='步驟 '+(index+1)+'／'+titles.length;$('#wizardProgressBar').value=index+1;$('#wizardTitle').textContent=titles[index];
+    const locked=draft.photoBusy||draft.submitting||draft.uncertain;
+    $('#wizardPrevious').hidden=index===0;$('#wizardNext').hidden=index===last;$('#wizardFinish').hidden=index!==last;$('#wizardFinish').disabled=index!==last||locked;
+    $('#wizardPrevious').disabled=$('#wizardNext').disabled=$('#changeCreateMode').disabled=locked;
+    for(const id of ['takePhoto','choosePhoto','removeDraftPhoto','scanAddCode'])$('#'+id).disabled=locked;
+    form.elements.locationId.disabled=noStock||locked;
+    const scan=steps[locationStep].querySelector('button[data-location-scan]');if(scan)scan.disabled=noStock||locked;
+    if(draft.uncertain)error('上次建立結果尚未確認，請先按上方「確認上次操作」，不要重新建立。');
+    $('#wizardLocationHint').textContent=noStock?'數量留空，本次不建立庫存或存放位置。可直接下一步，或返回填數量（可填0）。':isPart?'掃描儲位 QR、從選單選擇，或略過並暫存於「未指定」。':'掃描或選擇上級儲位；留空代表最上層儲位。';
+    if(isPart)$('#backToQuantity').hidden=!noStock;
+    if(index===last)summary();
+    if(focus){$('#wizardTitle').focus({preventScroll:true});$('#wizardTitle').scrollIntoView({block:'start',behavior:'smooth'});}
+  }
+  form.oninput=()=>{save();error('');};form.onchange=()=>{save();paint();};
+  form.elements.locationId.addEventListener('change',save);
+  attachLocationScanner(form.elements.locationId,isPart?'掃描存放儲位 QR':'掃描上級儲位 QR');
+  const locationButton=steps[locationStep].querySelector('select').nextElementSibling;locationButton.dataset.locationScan='1';
+  $('#changeCreateMode').onclick=()=>{save();addMode=null;renderAdd();};
+  const next=()=>{if(validate(draft.step)){draft.step++;paint(true);}};
+  $('#wizardNext').onclick=next;$('#wizardPrevious').onclick=()=>{save();error('');draft.step--;paint(true);};
+  if(isPart)$('#backToQuantity').onclick=()=>{save();draft.step=3;paint(true);};
+  $('#scanAddCode').onclick=()=>openScanner(code=>{form.elements.code.value=code.trim();save();validate(1);});
+  $('#takePhoto').onclick=()=>$('#photoCamera').click();$('#choosePhoto').onclick=()=>$('#photoLibrary').click();
+  $('#removeDraftPhoto').onclick=()=>{draft.photo='';draft.photoError='';renderAddWizard(mode);};
+  async function photoChanged(event){
+    const file=event.target.files[0];if(!file)return;save();draft.photoBusy=true;draft.photo='';draft.photoError='';paint();$('#photoBox').innerHTML='<span>正在處理照片…</span>';
+    try{draft.photo=await prepareWarehousePhoto(file);}catch(e){draft.photoError='照片處理失敗，可重新選擇或略過';toast(e.message);}
+    finally{draft.photoBusy=false;if(current==='add'&&addMode===mode)renderAddWizard(mode);}
+  }
+  $('#photoCamera').onchange=$('#photoLibrary').onchange=photoChanged;
+  form.onkeydown=event=>{if(event.key==='Enter'&&event.target.tagName!=='TEXTAREA'&&event.target.tagName!=='BUTTON'){event.preventDefault();if(draft.step<last)next();else $('#wizardFinish').click();}};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(draft.step<last){next();return;}
+    if(draft.submitting||draft.uncertain)return;
+    for(let i=0;i<last;i++)if(!validate(i)){draft.step=i;paint(true);return;}
+    const modeButton=$('#changeCreateMode');draft.submitting=true;modeButton.disabled=true;
+    await submitForm(form,async()=>{
+      save();const same=items.filter(x=>normalizeName(x.name)===normalizeName(draft.values.name)&&draft.values.name.trim());
+      if(same.length&&!await confirmDuplicateName(same))return;
+      const command=buildAddCommand(mode,draft.values,draft.photo);draft.submittedCommand=JSON.stringify(command);
+      let result;try{result=await warehouseCloud.mutate(command);}catch(e){if(e.uncertain)draft.uncertain=true;throw e;}
+      delete addDrafts[mode];addMode=null;renderAdd();toast('已建立 '+result.result.id);showDetail(result.result.id);
+    });
+    draft.submitting=false;if(form.isConnected){modeButton.disabled=!!draft.uncertain;paint();}
+  };
+  paint();
+}
+
 function renderLocations(){
   const visited=new Set();
   function tree(parent=null){
@@ -285,6 +372,12 @@ $('#scannerDialog').addEventListener('close',()=>stopCamera());
 $('#demoScanButton').onclick=()=>{const item=items[0];item?finishScan(item.id):toast('請先載入資料');};
 $('#manualScanButton').onclick=()=>{const code=$('#manualScanCode').value.trim();if(code)finishScan(code);else toast('請先輸入編號');};
 $('#manualScanCode').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();$('#manualScanButton').click();}};
+warehouseCloud.onMutationConfirmed=(command,result)=>{
+  const {requestId,...payload}=command;
+  for(const [mode,draft] of Object.entries(addDrafts))if(draft.uncertain&&draft.submittedCommand===JSON.stringify(payload)){
+    delete addDrafts[mode];addMode=null;if(current==='add')renderAdd();toast('已確認建立結果，請勿重複新增');showDetail(result.result.id);break;
+  }
+};
 warehouseCloud.onState=next=>{
   archivedStocks=next.stocks.filter(s=>s.status==='ARCHIVED');state={...next,stocks:next.stocks.filter(s=>s.status!=='ARCHIVED')};items=state.locations.map(x=>({...x})).concat(state.parts.map(x=>({...x,type:'item'})));
   detailGeneration++;['detailDialog','editDialog','quantityDialog'].forEach(id=>{const d=$('#'+id);if(d.open)d.close();});

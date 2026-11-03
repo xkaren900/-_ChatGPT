@@ -6,7 +6,7 @@ const warehouseCloud = (() => {
   const key = 'warehouse-token:' + endpoint, pendingKey = 'warehouse-pending-v4:' + endpoint;
   const backend = preview ? createWarehousePreview() : null;
   let token = '', busy = false, pending = null;
-  const api = {onState:null, request, refresh, mutate, resolvePending, isPreview:preview};
+  const api = {onState:null, onMutationConfirmed:null, request, refresh, mutate, resolvePending, isPreview:preview};
   const status = message => { document.querySelector('#cloudStatus').textContent = message; };
   function stored() { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } }
   function forget() { try { localStorage.removeItem(key); return true; } catch (_) { return false; } }
@@ -73,11 +73,12 @@ const warehouseCloud = (() => {
   async function sendPending() {
     busy = true; controls();status(pending.action.startsWith('create')?'新增中…請稍候':'儲存中…請稍候');
     try {
-      const result = await request(pending);
+      const command=pending,result = await request(command);
       // Once acknowledged, do not turn a refresh failure into a second mutation.
       clearPending(); busy = false;
       await refresh().catch(() => status('操作已提交，但尚未讀回最新資料；請重新載入'));
       if (result.warning) status(result.warning);
+      api.onMutationConfirmed?.(command,result);
       return result;
     } catch (error) {
       if (!error.uncertain) clearPending();
