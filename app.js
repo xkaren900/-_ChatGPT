@@ -38,7 +38,7 @@ function bindNavigation(){
   $('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();
   $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
 }
-function go(id){if(id==='add')addMode=null;const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
+function go(id){if(id==='add'){addMode=null;renderAdd();openCreationDialog();return;}const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
 function row(item,subtitle){
   return '<div class="item-row"><span class="type-icon '+item.type+'">'+typeIcon[item.type]+'</span><div class="row-body"><div class="row-title">'+esc(displayName(item))+'</div><div class="path">'+esc(subtitle||pathOf(item))+'</div>'+(item.type==='item'?'<small>'+esc(totalText(item))+'</small>':'<small>'+esc(item.status==='RESERVED'?'預留':'啟用')+'</small>')+'</div><button class="chevron" data-detail="'+esc(item.id)+'" aria-label="查看'+esc(displayName(item))+'">›</button></div>';
 }
@@ -122,12 +122,25 @@ function buildAddCommand(mode,values,photo=''){
   }
   command.code=code;if(photo)command.photo=photo;return command;
 }
+function openCreationDialog(){
+  const dialog=$('#creationDialog');
+  dialog.oncancel=event=>{if(Object.values(addDrafts).some(d=>d.submitting))event.preventDefault();};
+  dialog.onclose=()=>document.body.classList.remove('creation-open');
+  $('#closeCreationDialog').onclick=closeCreationDialog;
+  document.body.classList.add('creation-open');if(!dialog.open)dialog.showModal();
+}
+function closeCreationDialog(){
+  if(Object.values(addDrafts).some(d=>d.submitting))return;
+  $('#creationDialog').close();document.body.classList.remove('creation-open');
+}
 function renderAdd(){
+  $('#creationDialogTitle').textContent='新增';$('#closeCreationDialog').disabled=false;
   if(addMode){renderAddWizard(addMode);return;}
   $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">新增</h1><p class="page-sub">要建立什麼？選擇後依步驟填寫，最後確認才會儲存。草稿只保留在目前頁面，重新整理或關閉後會清除。</p><div class="creation-choices"><button class="quick" data-create-mode="item"><span class="icon">◆</span><b>物品</b><small>零件、耗材與其他物品</small>'+(addDrafts.item?'<span class="hint">繼續未完成的草稿</span>':'')+'</button><button class="quick" data-create-mode="location"><span class="icon">▣</span><b>儲位</b><small>房間、櫃子或零件盒</small>'+(addDrafts.location?'<span class="hint">繼續未完成的草稿</span>':'')+'</button></div>';
   $$('[data-create-mode]').forEach(button=>button.onclick=()=>{addMode=button.dataset.createMode;renderAddWizard(addMode);});
 }
 function renderAddWizard(mode){
+  $('#creationDialogTitle').textContent=mode==='item'?'新增物品':'新增儲位';
   const isPart=mode==='item',draft=addDrafts[mode]||(addDrafts[mode]={values:{name:'',code:'',quantity:'',unit:'個',manufacturer:'',mpn:'',specification:'',barcode:'',note:'',locationId:'',type:'box',status:'ACTIVE'},step:0,photo:'',photoBusy:false,photoError:''});
   const titles=isPart?['拍照','掃描 QR','物品名稱','數量與單位','其他資訊','存放儲位','確認完成']:['拍照','掃描 QR','名稱與種類','上級儲位','備註','確認完成'];
   const photoHTML='<div class="photo" id="photoBox">'+(draft.photo?'<img alt="照片預覽">':'<span>'+esc(draft.photoBusy?'正在處理照片…':draft.photoError||'尚未加入照片')+'</span>')+'</div><div class="photo-actions"><button type="button" class="secondary" id="takePhoto">拍照</button><button type="button" class="secondary" id="choosePhoto">選擇照片</button><button type="button" class="secondary" id="removeDraftPhoto">移除照片</button></div><input id="photoCamera" type="file" accept="image/*" capture="environment" hidden><input id="photoLibrary" type="file" accept="image/*" hidden><p class="hint">選填。沒有照片可直接下一步，之後也可返回補上。</p>';
@@ -178,6 +191,7 @@ function renderAddWizard(mode){
     steps.forEach((panel,i)=>{panel.hidden=i!==index;});
     $('#wizardProgress').textContent='步驟 '+(index+1)+'／'+titles.length;$('#wizardProgressBar').value=index+1;$('#wizardTitle').textContent=titles[index];
     const locked=draft.photoBusy||draft.submitting||draft.uncertain;
+    $('#closeCreationDialog').disabled=!!draft.submitting;
     $('#wizardPrevious').hidden=index===0;$('#wizardNext').hidden=index===last;$('#wizardFinish').hidden=index!==last;$('#wizardFinish').disabled=index!==last||locked;
     $('#wizardPrevious').disabled=$('#wizardNext').disabled=$('#changeCreateMode').disabled=locked;
     for(const id of ['takePhoto','choosePhoto','removeDraftPhoto','scanAddCode'])$('#'+id).disabled=locked;
@@ -203,7 +217,7 @@ function renderAddWizard(mode){
   async function photoChanged(event){
     const file=event.target.files[0];if(!file)return;save();draft.photoBusy=true;draft.photo='';draft.photoError='';paint();$('#photoBox').innerHTML='<span>正在處理照片…</span>';
     try{draft.photo=await prepareWarehousePhoto(file);}catch(e){draft.photoError='照片處理失敗，可重新選擇或略過';toast(e.message);}
-    finally{draft.photoBusy=false;if(current==='add'&&addMode===mode)renderAddWizard(mode);}
+    finally{draft.photoBusy=false;if($('#creationDialog').open&&addMode===mode)renderAddWizard(mode);}
   }
   $('#photoCamera').onchange=$('#photoLibrary').onchange=photoChanged;
   form.onkeydown=event=>{if(event.key==='Enter'&&event.target.tagName!=='TEXTAREA'&&event.target.tagName!=='BUTTON'){event.preventDefault();if(draft.step<last)next();else $('#wizardFinish').click();}};
@@ -211,13 +225,13 @@ function renderAddWizard(mode){
     event.preventDefault();if(draft.step<last){next();return;}
     if(draft.submitting||draft.uncertain)return;
     for(let i=0;i<last;i++)if(!validate(i)){draft.step=i;paint(true);return;}
-    const modeButton=$('#changeCreateMode');draft.submitting=true;modeButton.disabled=true;
+    const modeButton=$('#changeCreateMode');draft.submitting=true;modeButton.disabled=true;$('#closeCreationDialog').disabled=true;
     await submitForm(form,async()=>{
       save();const same=items.filter(x=>normalizeName(x.name)===normalizeName(draft.values.name)&&draft.values.name.trim());
       if(same.length&&!await confirmDuplicateName(same))return;
       const command=buildAddCommand(mode,draft.values,draft.photo);draft.submittedCommand=JSON.stringify(command);
       let result;try{result=await warehouseCloud.mutate(command);}catch(e){if(e.uncertain)draft.uncertain=true;throw e;}
-      delete addDrafts[mode];addMode=null;renderAdd();toast('已建立 '+result.result.id);showDetail(result.result.id);
+      delete addDrafts[mode];addMode=null;renderAdd();closeCreationDialog();toast('已建立 '+result.result.id);showDetail(result.result.id);
     });
     draft.submitting=false;if(form.isConnected){modeButton.disabled=!!draft.uncertain;paint();}
   };
@@ -375,7 +389,7 @@ $('#manualScanCode').onkeydown=event=>{if(event.key==='Enter'){event.preventDefa
 warehouseCloud.onMutationConfirmed=(command,result)=>{
   const {requestId,...payload}=command;
   for(const [mode,draft] of Object.entries(addDrafts))if(draft.uncertain&&draft.submittedCommand===JSON.stringify(payload)){
-    delete addDrafts[mode];addMode=null;if(current==='add')renderAdd();toast('已確認建立結果，請勿重複新增');showDetail(result.result.id);break;
+    delete addDrafts[mode];addMode=null;renderAdd();closeCreationDialog();toast('已確認建立結果，請勿重複新增');showDetail(result.result.id);break;
   }
 };
 warehouseCloud.onState=next=>{
