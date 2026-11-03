@@ -38,7 +38,7 @@ function bindNavigation(){
   $('#desktopNav').innerHTML=navHtml();$('#mobileNav').innerHTML=navHtml();
   $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
 }
-function go(id){if(id==='add'){addMode=null;renderAdd();openCreationDialog();return;}const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
+function go(id){if(id==='add')addMode=null;const label=nav.find(x=>x[0]===id)?.[2]||'頁面';toast('正在開啟'+label+'…');const activity=$('#pageActivity');if(activity)activity.textContent=label+'頁面已就緒';current=id;$$('.view').forEach(v=>v.classList.remove('active'));$('#'+id+'View').classList.add('active');render(id);bindNavigation();scrollTo({top:0,behavior:'smooth'});}
 function row(item,subtitle){
   return '<div class="item-row"><span class="type-icon '+item.type+'">'+typeIcon[item.type]+'</span><div class="row-body"><div class="row-title">'+esc(displayName(item))+'</div><div class="path">'+esc(subtitle||pathOf(item))+'</div>'+(item.type==='item'?'<small>'+esc(totalText(item))+'</small>':'<small>'+esc(item.status==='RESERVED'?'預留':'啟用')+'</small>')+'</div><button class="chevron" data-detail="'+esc(item.id)+'" aria-label="查看'+esc(displayName(item))+'">›</button></div>';
 }
@@ -125,19 +125,20 @@ function buildAddCommand(mode,values,photo=''){
 function openCreationDialog(){
   const dialog=$('#creationDialog');
   dialog.oncancel=event=>{if(Object.values(addDrafts).some(d=>d.submitting))event.preventDefault();};
-  dialog.onclose=()=>document.body.classList.remove('creation-open');
+  dialog.onclose=finishCreationDialogClose;
   $('#closeCreationDialog').onclick=closeCreationDialog;
   document.body.classList.add('creation-open');if(!dialog.open)dialog.showModal();
 }
 function closeCreationDialog(){
   if(Object.values(addDrafts).some(d=>d.submitting))return;
-  $('#creationDialog').close();document.body.classList.remove('creation-open');
+  $('#creationDialog').close();finishCreationDialogClose();
+}
+function finishCreationDialogClose(){
+  document.body.classList.remove('creation-open');const hadMode=addMode!==null;addMode=null;if(hadMode&&current==='add')renderAdd();
 }
 function renderAdd(){
-  $('#creationDialogTitle').textContent='新增';$('#closeCreationDialog').disabled=false;
-  if(addMode){renderAddWizard(addMode);return;}
   $('#addView').innerHTML='<p class="eyebrow">New record</p><h1 class="page-title">新增</h1><p class="page-sub">要建立什麼？選擇後依步驟填寫，最後確認才會儲存。草稿只保留在目前頁面，重新整理或關閉後會清除。</p><div class="creation-choices"><button class="quick" data-create-mode="item"><span class="icon">◆</span><b>物品</b><small>零件、耗材與其他物品</small>'+(addDrafts.item?'<span class="hint">繼續未完成的草稿</span>':'')+'</button><button class="quick" data-create-mode="location"><span class="icon">▣</span><b>儲位</b><small>房間、櫃子或零件盒</small>'+(addDrafts.location?'<span class="hint">繼續未完成的草稿</span>':'')+'</button></div>';
-  $$('[data-create-mode]').forEach(button=>button.onclick=()=>{addMode=button.dataset.createMode;renderAddWizard(addMode);});
+  $$('[data-create-mode]').forEach(button=>button.onclick=()=>{addMode=button.dataset.createMode;renderAddWizard(addMode);openCreationDialog();});
 }
 function renderAddWizard(mode){
   $('#creationDialogTitle').textContent=mode==='item'?'新增物品':'新增儲位';
@@ -151,7 +152,7 @@ function renderAddWizard(mode){
   const otherHTML=inputField('manufacturer','製造商（選填）')+inputField('mpn','製造商料號 MPN（選填）')+inputField('specification','規格（選填）')+inputField('barcode','商品／原廠條碼（選填）')+noteHTML;
   const locationHTML='<label>'+(isPart?'存放儲位':'上級儲位')+'（可略過）<select class="field" name="locationId">'+locationOptions()+'</select></label><p id="wizardLocationHint" class="hint"></p>'+(isPart?'<button type="button" class="secondary" id="backToQuantity">返回填寫數量</button>':'');
   const panels=isPart?[photoHTML,qrHTML,nameHTML,quantityHTML,otherHTML,locationHTML,'<div id="wizardSummary"></div>']:[photoHTML,qrHTML,nameHTML,locationHTML,noteHTML,'<div id="wizardSummary"></div>'];
-  $('#addView').innerHTML='<p class="eyebrow">New '+(isPart?'item':'location')+'</p><h1 class="page-title">新增'+(isPart?'物品':'儲位')+'</h1><button type="button" class="link-button" id="changeCreateMode">返回物品／儲位選擇（保留草稿）</button><form class="card form-card creation-wizard" id="addForm" novalidate><p id="wizardProgress" role="status"></p><progress id="wizardProgressBar" max="'+titles.length+'" value="1"></progress><h2 id="wizardTitle" tabindex="-1"></h2>'+panels.map((html,i)=>'<section class="creation-step stack" data-step="'+i+'" hidden>'+html+'</section>').join('')+'<p id="wizardError" role="alert"></p><div class="wizard-actions"><button type="button" class="secondary" id="wizardPrevious">上一步</button><button type="button" class="secondary" id="wizardNext">下一步</button><button type="submit" class="primary" id="wizardFinish" hidden>完成建立</button></div></form>';
+  $('#creationWizardContent').innerHTML='<p class="eyebrow">New '+(isPart?'item':'location')+'</p><h1 class="page-title">新增'+(isPart?'物品':'儲位')+'</h1><button type="button" class="link-button" id="changeCreateMode">返回物品／儲位選擇（保留草稿）</button><form class="card form-card creation-wizard" id="addForm" novalidate><p id="wizardProgress" role="status"></p><progress id="wizardProgressBar" max="'+titles.length+'" value="1"></progress><h2 id="wizardTitle" tabindex="-1"></h2>'+panels.map((html,i)=>'<section class="creation-step stack" data-step="'+i+'" hidden>'+html+'</section>').join('')+'<p id="wizardError" role="alert"></p><div class="wizard-actions"><button type="button" class="secondary" id="wizardPrevious">上一步</button><button type="button" class="secondary" id="wizardNext">下一步</button><button type="submit" class="primary" id="wizardFinish" hidden>完成建立</button></div></form>';
   const form=$('#addForm'),steps=Array.from(form.querySelectorAll('[data-step]')),last=titles.length-1,locationStep=isPart?5:3;
   for(const [key,value] of Object.entries(draft.values)){const field=form.elements.namedItem(key);if(field)field.value=value;}
   if(draft.photo)$('#photoBox img').src=draft.photo;
@@ -207,7 +208,7 @@ function renderAddWizard(mode){
   form.elements.locationId.addEventListener('change',save);
   attachLocationScanner(form.elements.locationId,isPart?'掃描存放儲位 QR':'掃描上級儲位 QR');
   const locationButton=steps[locationStep].querySelector('select').nextElementSibling;locationButton.dataset.locationScan='1';
-  $('#changeCreateMode').onclick=()=>{save();addMode=null;renderAdd();};
+  $('#changeCreateMode').onclick=()=>{save();closeCreationDialog();};
   const next=()=>{if(validate(draft.step)){draft.step++;paint(true);}};
   $('#wizardNext').onclick=next;$('#wizardPrevious').onclick=()=>{save();error('');draft.step--;paint(true);};
   if(isPart)$('#backToQuantity').onclick=()=>{save();draft.step=3;paint(true);};
